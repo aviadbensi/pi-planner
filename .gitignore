@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Server runtime data — the live plan is local state, not source
+server/plan.json
+
+# Packaged build artifact (regenerate from pi-planner.html)
+*.zip
+
+# Node
+node_modules/

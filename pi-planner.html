@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PI Planner</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2129; --panel2:#222b35; --line:#2e3a47;
+    --txt:#e6edf3; --muted:#93a1b0; --accent:#4f9cf9; --accent2:#7c5cff;
+    --dev:#3b82f6; --qa:#10b981; --warn:#f59e0b; --bad:#ef4444; --good:#22c55e;
+    --chip:#2b3845; --hover:#2a3744; --sel:#26323f; --barbg:#0c1117;
+    --onaccent:#06121f; --accentHover:#6fb0ff;
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f6fa; --panel:#ffffff; --panel2:#eef2f7; --line:#d6dee8;
+    --txt:#1c2530; --muted:#5b6b7a; --accent:#2563eb; --accent2:#7c5cff;
+    --dev:#2563eb; --qa:#059669; --warn:#d97706; --bad:#dc2626; --good:#16a34a;
+    --chip:#e3e9f1; --hover:#dde6f2; --sel:#dbe7fb; --barbg:#e3e9f1;
+    --onaccent:#ffffff; --accentHover:#1d4ed8;
+  }
+  html,body{transition:background-color .15s,color .15s}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--txt);font-size:14px;line-height:1.45}
+  header{display:flex;align-items:center;gap:14px;padding:12px 18px;background:var(--panel);
+    border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
+  header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.2px}
+  header .piname{color:var(--muted);font-size:13px}
+  header .piname input{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:6px;padding:4px 8px;font-size:13px;width:200px}
+  .spacer{flex:1}
+  .tabs{display:flex;gap:4px;padding:0 18px;background:var(--panel);border-bottom:1px solid var(--line);
+    position:sticky;top:53px;z-index:29}
+  .tab{padding:10px 16px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-weight:550}
+  .tab.active{color:var(--txt);border-bottom-color:var(--accent)}
+  .tab:hover{color:var(--txt)}
+  main{padding:18px;max-width:1500px;margin:0 auto}
+  .hidden{display:none!important}
+  button{font-family:inherit;font-size:13px;cursor:pointer;border-radius:6px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--txt);padding:6px 12px;transition:.12s}
+  button:hover{border-color:var(--accent);background:var(--hover)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:var(--onaccent);font-weight:600}
+  button.primary:hover{background:var(--accentHover)}
+  button.ghost{background:transparent}
+  button.danger{color:var(--bad);border-color:transparent}
+  button.danger:hover{border-color:var(--bad);background:rgba(239,68,68,.08)}
+  button.sm{padding:3px 8px;font-size:12px}
+  input,select,textarea{font-family:inherit;background:var(--panel);border:1px solid var(--line);color:var(--txt);
+    border-radius:6px;padding:6px 8px;font-size:13px}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  input[type=number]{width:64px}
+  table{border-collapse:collapse;width:100%}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  .card h2{margin:0 0 12px;font-size:15px}
+  .card h3{margin:0 0 10px;font-size:14px;color:var(--txt)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .muted{color:var(--muted)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:var(--chip)}
+  .pill.dev{background:rgba(59,130,246,.18);color:#8fbcff}
+  .pill.qa{background:rgba(16,185,129,.18);color:#6ee7b7}
+  .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+  .toolbar .spacer{flex:1}
+  .savestate{font-size:12px;color:var(--muted)}
+  /* Board */
+  .board{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+  .board-grid{display:grid;min-width:max-content}
+  .bcell{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:8px;min-width:230px;vertical-align:top}
+  .bhead{position:sticky;top:0;background:var(--panel2);font-weight:600;text-align:center;z-index:5;padding:10px 8px}
+  .blane{position:sticky;left:0;background:var(--panel2);font-weight:600;z-index:6;min-width:160px;display:flex;
+    flex-direction:column;justify-content:center;gap:4px}
+  .bhead.corner{position:sticky;left:0;top:0;z-index:10;min-width:160px}
+  .dropzone{min-height:80px;border-radius:8px;padding:4px;transition:.12s;background:rgba(255,255,255,.012)}
+  .dropzone.over{background:rgba(79,156,249,.12);outline:2px dashed var(--accent)}
+  .pbi{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:7px;padding:7px 9px;margin-bottom:6px;cursor:grab;font-size:12.5px}
+  .pbi:active{cursor:grabbing}
+  .pbi.viol{border-left-color:var(--bad);box-shadow:0 0 0 1px rgba(239,68,68,.4) inset}
+  .pbi .ttl{font-weight:600;margin-bottom:3px;display:flex;gap:6px;align-items:center;justify-content:space-between}
+  .pbi .est{display:flex;gap:8px;font-size:11px;color:var(--muted)}
+  .pbi .est b{color:var(--txt);font-weight:600}
+  .pbi .feat{font-size:10.5px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:4px}
+  .dep{font-size:10px;color:var(--warn)}
+  .capbars{display:flex;flex-direction:column;gap:5px;margin-top:6px}
+  .capbar{font-size:10.5px}
+  .capbar .lab{display:flex;justify-content:space-between;margin-bottom:2px}
+  .bar{height:6px;border-radius:4px;background:var(--barbg);overflow:hidden}
+  .bar > span{display:block;height:100%;border-radius:4px}
+  .swatch{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .legend{display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted);margin:10px 2px}
+  .feat-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
+  .empty{color:var(--muted);font-style:italic;padding:18px;text-align:center}
+  .frow{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;
+    margin-bottom:6px;cursor:pointer;background:var(--panel2)}
+  .frow:hover{border-color:var(--accent)}
+  .frow.sel{border-color:var(--accent);background:var(--sel)}
+  .pbiedit{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--panel2)}
+  .pbiedit textarea{width:100%;min-height:40px;resize:vertical;font-size:12.5px}
+  .fieldrow{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:8px}
+  .fieldrow label{font-size:11px;color:var(--muted);display:flex;gap:5px;align-items:center}
+  .deprow{margin-top:8px;font-size:11px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .grip{cursor:grab;color:var(--muted);user-select:none}
+  details summary{cursor:pointer;font-weight:600;margin-bottom:8px}
+  .help{font-size:12px;color:var(--muted);margin-top:4px}
+  .tag-deps{display:flex;flex-wrap:wrap;gap:4px}
+  .mini{font-size:11px;padding:1px 6px;border-radius:999px;background:var(--chip);color:var(--muted);cursor:pointer;border:1px solid transparent}
+  .mini.on{background:rgba(124,92,255,.2);color:#c4b5ff;border-color:#7c5cff}
+  .kpi{display:flex;gap:18px;flex-wrap:wrap;margin:4px 0 0}
+  .kpi div{font-size:12px;color:var(--muted)}
+  .kpi b{color:var(--txt)}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel2);
+    border:1px solid var(--line);padding:10px 16px;border-radius:8px;font-size:13px;z-index:100;opacity:0;
+    transition:.2s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>PI Planner</h1>
+  <span class="piname">PI: <input id="piName" placeholder="PI name e.g. 2026 Q3"></span>
+  <div class="spacer"></div>
+  <span class="savestate" id="saveState">saved</span>
+  <button class="ghost sm" id="themeBtn" onclick="toggleTheme()" title="Switch light / dark theme">◐ Light</button>
+  <button class="ghost sm" onclick="doExport()">Export JSON</button>
+  <button class="ghost sm" onclick="document.getElementById('importFile').click()">Import JSON</button>
+  <input type="file" id="importFile" accept="application/json" class="hidden" onchange="doImport(event)">
+  <button class="danger sm" onclick="resetAll()">Reset</button>
+</header>
+
+<div class="tabs">
+  <div class="tab active" data-tab="setup" onclick="showTab('setup')">Setup</div>
+  <div class="tab" data-tab="backlog" onclick="showTab('backlog')">Features &amp; PBIs</div>
+  <div class="tab" data-tab="board" onclick="showTab('board')">Program Board</div>
+</div>
+
+<main>
+  <!-- SETUP -->
+  <section id="tab-setup">
+    <div class="card">
+      <h2>Sprints</h2>
+      <div class="help">Working days per sprint = weeks &times; 5. Edit length per sprint. PI supports 3&ndash;5 sprints.</div>
+      <div id="sprintEditor" style="margin-top:12px"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="sm" onclick="addSprint()">+ Add sprint</button>
+        <span class="muted" id="sprintHint"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Teams &amp; Members</h2>
+      <div class="help">Each member is a Dev or QA. Available days/sprint = (sprint working days &times; capacity%) &minus; PTO for that sprint.</div>
+      <div id="teamEditor" style="margin-top:12px"></div>
+      <button class="sm" style="margin-top:6px" onclick="addTeam()">+ Add team</button>
+    </div>
+  </section>
+
+  <!-- BACKLOG -->
+  <section id="tab-backlog" class="hidden">
+    <div class="toolbar">
+      <button class="sm danger" onclick="clearPlan()" title="Move every PBI back to the backlog (sprint placements removed)">Clear plan</button>
+      <button class="sm danger" onclick="clearAllPbis()" title="Delete all PBIs, keep features">Clear all PBIs</button>
+      <button class="sm danger" onclick="clearAllFeatures()" title="Delete all features and their PBIs">Clear all features</button>
+    </div>
+    <div class="card">
+      <h2>Features (prioritized)</h2>
+      <div class="help">Drag the grip to reorder priority (top = highest). A feature is fully planned when all its PBIs are placed in a sprint.</div>
+      <table style="margin-top:10px"><thead><tr>
+        <th style="width:30px"></th><th style="width:42px">#</th><th>Title</th><th>Description</th>
+        <th style="width:120px">Planned</th><th style="width:60px"></th>
+      </tr></thead><tbody id="featureRows"></tbody></table>
+      <button class="sm" style="margin-top:10px" onclick="addFeature()">+ Add feature</button>
+    </div>
+    <div class="card">
+      <h2>Plan by feature</h2>
+      <div class="help">Pick a feature on the right; edit, add, or delete its PBIs on the left. A PBI can depend only on other PBIs in the same feature.</div>
+      <div class="row" style="align-items:stretch;gap:16px;margin-top:12px">
+        <div style="flex:2;min-width:0" id="featurePbiPane"></div>
+        <div style="flex:1;min-width:230px" id="featureListPane"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BOARD -->
+  <section id="tab-board" class="hidden">
+    <div class="toolbar">
+      <button class="primary" onclick="autoFit()">⚡ Auto-fit by priority</button>
+      <button class="sm" onclick="clearPlacements()">Clear all placements</button>
+      <div class="spacer"></div>
+      <span class="muted" id="boardStats"></span>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="board"><div class="board-grid" id="boardGrid"></div></div>
+    <div class="card" style="margin-top:16px">
+      <h3>Unplanned backlog</h3>
+      <div class="help">PBIs not yet placed in a sprint. Drag onto the board, or use Auto-fit.</div>
+      <div id="backlogZone" class="dropzone" data-sprint="" data-backlog="1" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px"></div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- State ---------- */
+const STORE_KEY = 'pi-planner-state-v1';
+let state = null;
+let dragId = null;
+let selFeature = null;
+
+function uid(p){return p+'_'+Math.random().toString(36).slice(2,9)}
+
+function defaultState(){
+  const s = [1,2,3,4,5].map((n,i)=>({id:uid('sp'),name:'Sprint '+n,weeks:3,days:15}));
+  const t1=uid('tm'), t2=uid('tm');
+  const featBase=[
+    {id:uid('ft'),title:'Customer onboarding revamp',desc:'New signup + KYC flow'},
+    {id:uid('ft'),title:'Reporting dashboard',desc:'Self-serve analytics'},
+    {id:uid('ft'),title:'Mobile push notifications',desc:'Cross-platform delivery'},
+  ];
+  return {
+    piName:'2026 Q3',
+    sprints:s,
+    teams:[
+      {id:t1,name:'Team Falcon',members:[
+        {id:uid('mb'),name:'Alice',role:'Dev',cap:80,pto:{}},
+        {id:uid('mb'),name:'Bob',role:'Dev',cap:100,pto:{}},
+        {id:uid('mb'),name:'Carol',role:'QA',cap:90,pto:{}},
+      ]},
+      {id:t2,name:'Team Phoenix',members:[
+        {id:uid('mb'),name:'Dan',role:'Dev',cap:100,pto:{}},
+        {id:uid('mb'),name:'Erin',role:'QA',cap:80,pto:{}},
+      ]},
+    ],
+    features:featBase.map((f,i)=>({id:f.id,title:f.title,desc:f.desc,rank:i+1})),
+    pbis:[
+      {id:uid('pb'),title:'Signup form UI',featureId:featBase[0].id,teamId:t1,eeDev:6,eeQA:2,sprintId:null,deps:[]},
+      {id:uid('pb'),title:'KYC integration',featureId:featBase[0].id,teamId:t1,eeDev:8,eeQA:3,sprintId:null,deps:[]},
+      {id:uid('pb'),title:'Dashboard API',featureId:featBase[1].id,teamId:t2,eeDev:7,eeQA:2,sprintId:null,deps:[]},
+      {id:uid('pb'),title:'Charts frontend',featureId:featBase[1].id,teamId:t1,eeDev:5,eeQA:2,sprintId:null,deps:[]},
+      {id:uid('pb'),title:'Push gateway',featureId:featBase[2].id,teamId:t2,eeDev:6,eeQA:3,sprintId:null,deps:[]},
+    ]
+  };
+}
+
+/* ---------- Persistence ---------- */
+let saveTimer=null;
+function save(){
+  localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  const el=document.getElementById('saveState');
+  el.textContent='saving…';
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{el.textContent='saved ✓'},250);
+}
+function load(){
+  try{const raw=localStorage.getItem(STORE_KEY);if(raw)return JSON.parse(raw);}catch(e){}
+  return null;
+}
+function commit(){ save(); renderAll(); }
+
+function doExport(){
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=(state.piName||'pi-plan').replace(/[^a-z0-9]+/gi,'-').toLowerCase()+'.json';
+  a.click();URL.revokeObjectURL(a.href);
+  toast('Exported '+a.download);
+}
+function doImport(ev){
+  const f=ev.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const data=JSON.parse(r.result);
+      if(!data.sprints||!data.teams) throw new Error('not a PI plan');
+      state=migrate(data); commit(); toast('Imported '+f.name);
+    }catch(e){alert('Could not import: '+e.message)}
+    ev.target.value='';
+  };
+  r.readAsText(f);
+}
+function migrate(d){
+  d.piName=d.piName||'';
+  d.sprints=(d.sprints||[]).map(s=>{const w=s.weeks||3;return {id:s.id||uid('sp'),name:s.name||'Sprint',weeks:w,days:s.days!=null?+s.days:w*5}});
+  d.teams=(d.teams||[]).map(t=>({id:t.id||uid('tm'),name:t.name||'Team',members:(t.members||[]).map(m=>({
+    id:m.id||uid('mb'),name:m.name||'',role:m.role==='QA'?'QA':'Dev',cap:m.cap==null?100:m.cap,pto:m.pto||{}}))}));
+  d.features=(d.features||[]).map((f,i)=>({id:f.id||uid('ft'),title:f.title||'',desc:f.desc||'',rank:f.rank||i+1}));
+  d.pbis=(d.pbis||[]).map(p=>({id:p.id||uid('pb'),title:p.title||'',desc:p.desc||'',featureId:p.featureId||null,teamId:p.teamId||null,
+    eeDev:+p.eeDev||0,eeQA:+p.eeQA||0,sprintId:p.sprintId||null,deps:p.deps||[]}));
+  // dependencies are restricted to PBIs in the same feature — drop any that aren't
+  const fOf={};d.pbis.forEach(p=>fOf[p.id]=p.featureId);
+  d.pbis.forEach(p=>{p.deps=(p.deps||[]).filter(dep=>fOf[dep]!==undefined&&fOf[dep]===p.featureId)});
+  return d;
+}
+function resetAll(){
+  if(!confirm('Reset to sample data? This clears your current plan (export first to keep it).'))return;
+  state=defaultState();commit();toast('Reset to sample plan');
+}
+
+/* ---------- Helpers ---------- */
+const team=id=>state.teams.find(t=>t.id===id);
+const feature=id=>state.features.find(f=>f.id===id);
+const pbi=id=>state.pbis.find(p=>p.id===id);
+const sprintIndex=id=>state.sprints.findIndex(s=>s.id===id);
+const featColor=id=>{const i=Math.max(0,state.features.findIndex(f=>f.id===id));
+  const h=(i*67)%360;return `hsl(${h} 70% 60%)`};
+/* ==PURE_LOGIC_START==
+   Self-contained, side-effect-free planning math. No DOM, no global `state`.
+   This exact block is extracted and unit-tested by tests/pi-logic.test.js —
+   keep it pure (inputs in, values out) so the tests cover the real shipped code. */
+function _workingDays(sp){return sp.days!=null?sp.days:(sp.weeks||0)*5}
+function _defaultDays(sp){return (sp.weeks||0)*5}
+// member's available person-days in a sprint = working days × capacity% − PTO, floored at 0
+function _memberAvail(m,sp){
+  const pto=(m.pto&&m.pto[sp.id])?+m.pto[sp.id]:0;
+  return Math.max(0, _workingDays(sp)*(m.cap/100) - pto);
+}
+// team capacity pool for a sprint, summed over members of one role
+function _teamPool(t,sp,role){
+  return t.members.filter(m=>m.role===role).reduce((a,m)=>a+_memberAvail(m,sp),0);
+}
+// total effort demanded of a team in a sprint for one role
+function _teamDemand(pbis,tId,spId,role){
+  return pbis.filter(p=>p.teamId===tId&&p.sprintId===spId)
+    .reduce((a,p)=>a+(role==='Dev'?(+p.eeDev||0):(+p.eeQA||0)),0);
+}
+function _sprintIndex(sprints,id){return sprints.findIndex(s=>s.id===id)}
+// dependency-order violations: dep unplaced, or dep in the same/later sprint
+function _violations(p,pbis,sprints){
+  if(!p.sprintId) return [];
+  const si=_sprintIndex(sprints,p.sprintId);
+  const find=id=>pbis.find(x=>x.id===id);
+  return (p.deps||[]).filter(d=>{
+    const dp=find(d); if(!dp)return false;
+    if(!dp.sprintId) return true;
+    return _sprintIndex(sprints,dp.sprintId)>=si;
+  });
+}
+// greedy auto-fit. Pure: does NOT mutate `plan`. Returns {placements:{pbiId:sprintId|null}, unplaced:[pbiId]}
+function _computeAutoFit(plan){
+  const sprints=plan.sprints, teams=plan.teams, features=plan.features||[];
+  const rankOf=fid=>{const f=features.find(x=>x.id===fid);return f&&f.rank!=null?f.rank:999};
+  const teamOf=tid=>teams.find(t=>t.id===tid);
+  const pbis=plan.pbis.map(p=>({id:p.id,teamId:p.teamId,featureId:p.featureId,
+    eeDev:+p.eeDev||0,eeQA:+p.eeQA||0,deps:(p.deps||[]).slice(),sprintId:null}));
+  const find=id=>pbis.find(p=>p.id===id);
+  const order=pbis.slice().sort((a,b)=>rankOf(a.featureId)-rankOf(b.featureId));
+  const placed=new Set();
+  let progress=true, guard=0;
+  while(progress && guard++<2000){
+    progress=false;
+    for(const p of order){
+      if(placed.has(p.id))continue;
+      if(!p.teamId)continue;                 // can't place without a team
+      const deps=p.deps.map(find).filter(Boolean);
+      if(deps.some(d=>!placed.has(d.id)))continue; // wait until deps placed
+      const minIdx=deps.reduce((mx,d)=>Math.max(mx,_sprintIndex(sprints,d.sprintId)+1),0);
+      for(let i=minIdx;i<sprints.length;i++){
+        const sp=sprints[i],t=teamOf(p.teamId);if(!t)break;
+        const devPool=_teamPool(t,sp,'Dev'),qaPool=_teamPool(t,sp,'QA');
+        const devDem=_teamDemand(pbis,t.id,sp.id,'Dev')+p.eeDev;
+        const qaDem=_teamDemand(pbis,t.id,sp.id,'QA')+p.eeQA;
+        if(devDem<=devPool+1e-9 && qaDem<=qaPool+1e-9){
+          p.sprintId=sp.id;placed.add(p.id);progress=true;break;
+        }
+      }
+    }
+  }
+  const placements={};pbis.forEach(p=>placements[p.id]=p.sprintId);
+  const unplaced=pbis.filter(p=>p.teamId&&!placed.has(p.id)).map(p=>p.id);
+  return {placements,unplaced};
+}
+if(typeof module!=='undefined'&&module.exports){
+  module.exports={_workingDays,_defaultDays,_memberAvail,_teamPool,_teamDemand,_sprintIndex,_violations,_computeAutoFit};
+}
+/* ==PURE_LOGIC_END== */
+
+// Thin wrappers so the rest of the app keeps its concise call sites while the math lives in the pure block above.
+function workingDays(sp){return _workingDays(sp)}
+function defaultDays(sp){return _defaultDays(sp)}
+function memberAvail(m,sp){return _memberAvail(m,sp)}
+function teamPool(t,sp,role){return _teamPool(t,sp,role)}
+function teamDemand(tId,spId,role){return _teamDemand(state.pbis,tId,spId,role)}
+function violations(p){return _violations(p,state.pbis,state.sprints)}
+
+/* ---------- Tabs ---------- */
+function showTab(name){
+  ['setup','backlog','board'].forEach(t=>{
+    document.getElementById('tab-'+t).classList.toggle('hidden',t!==name);
+    document.querySelector(`.tab[data-tab="${t}"]`).classList.toggle('active',t===name);
+  });
+  if(name==='board') renderBoard();
+  if(name==='backlog') renderMasterDetail();
+}
+
+/* ---------- Setup: sprints ---------- */
+function renderSprints(){
+  const wrap=document.getElementById('sprintEditor');
+  wrap.innerHTML='';
+  const tbl=document.createElement('table');
+  tbl.innerHTML='<thead><tr><th style="width:42px">#</th><th>Name</th><th style="width:110px">Weeks</th><th style="width:150px">Working days</th><th style="width:50px"></th></tr></thead>';
+  const tb=document.createElement('tbody');
+  state.sprints.forEach((sp,i)=>{
+    const tr=document.createElement('tr');
+    const isDefault=workingDays(sp)===defaultDays(sp);
+    tr.innerHTML=`<td>${i+1}</td>
+      <td><input value="${esc(sp.name)}" oninput="setSprint('${sp.id}','name',this.value)" style="width:180px"></td>
+      <td><select onchange="setSprintWeeks('${sp.id}',+this.value)">
+        ${[1,2,3].map(w=>`<option value="${w}" ${sp.weeks===w?'selected':''}>${w} wk</option>`).join('')}
+      </select></td>
+      <td><input type="number" min="0" step="0.5" value="${workingDays(sp)}" oninput="setSprint('${sp.id}','days',+this.value)" style="width:62px"> d
+        ${isDefault?'':`<button class="mini" title="Reset to ${defaultDays(sp)} (5 × weeks)" onclick="resetSprintDays('${sp.id}')">reset</button>`}</td>
+      <td>${state.sprints.length>3?`<button class="danger sm" onclick="delSprint('${sp.id}')">✕</button>`:''}</td>`;
+    tb.appendChild(tr);
+  });
+  tbl.appendChild(tb);wrap.appendChild(tbl);
+  document.getElementById('sprintHint').textContent=`${state.sprints.length} sprints (PI range 3–5).`;
+}
+function setSprint(id,k,v){const sp=state.sprints.find(s=>s.id===id);sp[k]=v;
+  if(k==='days'){save();renderTeams();renderBoardIfActive();document.getElementById('sprintHint').textContent=`${state.sprints.length} sprints (PI range 3–5).`;}
+  else commit();}
+function setSprintWeeks(id,w){const sp=state.sprints.find(s=>s.id===id);sp.weeks=w;sp.days=w*5;commit()}
+function resetSprintDays(id){const sp=state.sprints.find(s=>s.id===id);sp.days=defaultDays(sp);commit()}
+function addSprint(){
+  if(state.sprints.length>=5){toast('Max 5 sprints');return}
+  state.sprints.push({id:uid('sp'),name:'Sprint '+(state.sprints.length+1),weeks:3});commit();
+}
+function delSprint(id){
+  if(state.sprints.length<=3){toast('Min 3 sprints');return}
+  if(!confirm('Delete this sprint? PBIs placed there move back to backlog.'))return;
+  state.pbis.forEach(p=>{if(p.sprintId===id)p.sprintId=null});
+  state.teams.forEach(t=>t.members.forEach(m=>{if(m.pto)delete m.pto[id]}));
+  state.sprints=state.sprints.filter(s=>s.id!==id);commit();
+}
+
+/* ---------- Setup: teams ---------- */
+function renderTeams(){
+  const wrap=document.getElementById('teamEditor');wrap.innerHTML='';
+  state.teams.forEach(t=>{
+    const d=document.createElement('div');d.className='card';d.style.background='var(--panel2)';
+    let head=`<div class="row" style="justify-content:space-between">
+      <input value="${esc(t.name)}" oninput="setTeam('${t.id}','name',this.value)" style="font-weight:600;width:240px">
+      <button class="danger sm" onclick="delTeam('${t.id}')">Delete team</button></div>`;
+    const ptoCols=state.sprints.map((sp,i)=>`<th title="${esc(sp.name)}">PTO S${i+1}</th>`).join('');
+    let rows=t.members.map(m=>{
+      const pto=state.sprints.map(sp=>`<td><input type="number" min="0" style="width:52px" value="${(m.pto&&m.pto[sp.id])||0}" oninput="setPto('${t.id}','${m.id}','${sp.id}',this.value)"></td>`).join('');
+      return `<tr>
+        <td><input value="${esc(m.name)}" oninput="setMember('${t.id}','${m.id}','name',this.value)" style="width:120px"></td>
+        <td><select onchange="setMember('${t.id}','${m.id}','role',this.value)">
+          <option ${m.role==='Dev'?'selected':''}>Dev</option><option ${m.role==='QA'?'selected':''}>QA</option></select></td>
+        <td><input type="number" min="0" max="100" value="${m.cap}" oninput="setMember('${t.id}','${m.id}','cap',+this.value)"> %</td>
+        ${pto}
+        <td><button class="danger sm" onclick="delMember('${t.id}','${m.id}')">✕</button></td></tr>`;
+    }).join('');
+    // capacity summary
+    const sums=state.sprints.map(sp=>{
+      const dev=teamPool(t,sp,'Dev'),qa=teamPool(t,sp,'QA');
+      return `<td class="muted" style="font-size:11px">D ${dev.toFixed(1)} / Q ${qa.toFixed(1)}</td>`;
+    }).join('');
+    d.innerHTML=head+`
+      <table style="margin-top:10px"><thead><tr><th>Member</th><th>Role</th><th>Capacity</th>${ptoCols}<th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="9" class="muted">No members yet</td></tr>'}</tbody>
+      <tfoot><tr><th colspan="3" style="text-align:right">Pool (Dev/QA days):</th>${sums}<th></th></tr></tfoot></table>
+      <button class="sm" style="margin-top:8px" onclick="addMember('${t.id}')">+ Add member</button>`;
+    wrap.appendChild(d);
+  });
+}
+function setTeam(id,k,v){team(id)[k]=v;save();if(k==='name')renderAll();else renderTeams()}
+function delTeam(id){
+  if(!confirm('Delete this team and its members? PBIs assigned to it lose their team.'))return;
+  state.pbis.forEach(p=>{if(p.teamId===id){p.teamId=null;p.sprintId=null}});
+  state.teams=state.teams.filter(t=>t.id!==id);commit();
+}
+function addTeam(){state.teams.push({id:uid('tm'),name:'New Team',members:[]});commit()}
+function addMember(tId){team(tId).members.push({id:uid('mb'),name:'New Member',role:'Dev',cap:100,pto:{}});commit()}
+function delMember(tId,mId){const t=team(tId);t.members=t.members.filter(m=>m.id!==mId);commit()}
+function setMember(tId,mId,k,v){const m=team(tId).members.find(x=>x.id===mId);m[k]=v;save();renderTeams()}
+function setPto(tId,mId,spId,v){const m=team(tId).members.find(x=>x.id===mId);if(!m.pto)m.pto={};m.pto[spId]=+v||0;save();renderTeams()}
+
+/* ---------- Features ---------- */
+function renderFeatures(){
+  const tb=document.getElementById('featureRows');tb.innerHTML='';
+  state.features.sort((a,b)=>a.rank-b.rank).forEach((f,i)=>{f.rank=i+1});
+  state.features.forEach((f,i)=>{
+    const pbis=state.pbis.filter(p=>p.featureId===f.id);
+    const placed=pbis.filter(p=>p.sprintId).length;
+    const status=pbis.length?(placed===pbis.length?`<span class="pill" style="background:rgba(34,197,94,.18);color:#86efac">${placed}/${pbis.length} ✓</span>`:`<span class="pill">${placed}/${pbis.length}</span>`):'<span class="muted">no PBIs</span>';
+    const tr=document.createElement('tr');tr.draggable=true;tr.dataset.fid=f.id;
+    tr.ondragstart=e=>{e.dataTransfer.setData('text/fid',f.id)};
+    tr.ondragover=e=>e.preventDefault();
+    tr.ondrop=e=>{e.preventDefault();reorderFeature(e.dataTransfer.getData('text/fid'),f.id)};
+    tr.innerHTML=`<td class="grip">⠿</td><td><span class="feat-dot" style="background:${featColor(f.id)}"></span> ${f.rank}</td>
+      <td><input value="${esc(f.title)}" oninput="setFeature('${f.id}','title',this.value)" style="width:100%"></td>
+      <td><input value="${esc(f.desc)}" oninput="setFeature('${f.id}','desc',this.value)" style="width:100%"></td>
+      <td>${status}</td>
+      <td><button class="danger sm" onclick="delFeature('${f.id}')">✕</button></td>`;
+    tb.appendChild(tr);
+  });
+}
+function setFeature(id,k,v){feature(id)[k]=v;save();if(k==='title'){renderBoardIfActive();}}
+function addFeature(){state.features.push({id:uid('ft'),title:'New feature',desc:'',rank:state.features.length+1});commit()}
+function delFeature(id){
+  if(!confirm('Delete feature? Its PBIs will be removed.'))return;
+  state.pbis=state.pbis.filter(p=>p.featureId!==id);
+  state.features=state.features.filter(f=>f.id!==id);commit();
+}
+function reorderFeature(fromId,toId){
+  if(fromId===toId)return;
+  const arr=state.features;
+  const from=arr.find(f=>f.id===fromId),to=arr.find(f=>f.id===toId);
+  const fr=from.rank,tr=to.rank;
+  if(fr<tr){arr.forEach(f=>{if(f.rank>fr&&f.rank<=tr)f.rank--});from.rank=tr;}
+  else{arr.forEach(f=>{if(f.rank>=tr&&f.rank<fr)f.rank++});from.rank=tr;}
+  commit();
+}
+
+/* ---------- PBIs ---------- */
+function setPbi(id,k,v){const p=pbi(id);
+  if(k==='eeDev'||k==='eeQA')p[k]=+v;
+  else if(k==='teamId'||k==='sprintId'||k==='featureId')p[k]=(v===''?null:v);
+  else p[k]=v; // title, desc kept as text
+  save();renderFeatures();renderBoardIfActive();}
+function delPbi(id){
+  state.pbis.forEach(p=>{p.deps=p.deps.filter(d=>d!==id)});
+  state.pbis=state.pbis.filter(p=>p.id!==id);commit();
+}
+function toggleDep(id,depId){
+  const p=pbi(id);
+  if(p.deps.includes(depId))p.deps=p.deps.filter(d=>d!==depId);else p.deps.push(depId);
+  commit();
+}
+
+/* ---------- Clear actions ---------- */
+function clearPlan(){
+  if(!confirm('Clear the plan? Every PBI moves back to the backlog (sprint placements removed). Features, PBIs and teams are kept.'))return;
+  state.pbis.forEach(p=>p.sprintId=null);commit();toast('Plan cleared — all PBIs back in backlog');
+}
+function clearAllPbis(){
+  if(!confirm('Delete ALL PBIs? Features are kept. Export first if you want a backup.'))return;
+  state.pbis=[];commit();toast('All PBIs deleted');
+}
+function clearAllFeatures(){
+  if(!confirm('Delete ALL features and their PBIs? Export first if you want a backup.'))return;
+  state.features=[];state.pbis=[];selFeature=null;commit();toast('All features deleted');
+}
+
+/* ---------- Feature → PBI master-detail ---------- */
+function renderMasterDetail(){
+  const lp=document.getElementById('featureListPane');
+  const dp=document.getElementById('featurePbiPane');
+  if(!lp||!dp)return;
+  if(!state.features.length){
+    lp.innerHTML='<h3>Features</h3><div class="empty">No features</div>';
+    dp.innerHTML='<div class="empty">No features yet — add one above.</div>';
+    return;
+  }
+  if(!selFeature||!feature(selFeature))selFeature=[...state.features].sort((a,b)=>a.rank-b.rank)[0].id;
+  // right: feature list
+  lp.innerHTML='<h3>Features</h3>'+[...state.features].sort((a,b)=>a.rank-b.rank).map(f=>{
+    const n=state.pbis.filter(p=>p.featureId===f.id).length;
+    const placed=state.pbis.filter(p=>p.featureId===f.id&&p.sprintId).length;
+    return `<div class="frow ${f.id===selFeature?'sel':''}" onclick="selFeature='${f.id}';renderMasterDetail()">
+      <span class="feat-dot" style="background:${featColor(f.id)}"></span>
+      <span style="flex:1">${f.rank}. ${esc(f.title)}</span>
+      <span class="pill">${placed}/${n}</span></div>`;
+  }).join('');
+  // left: PBIs of selected feature (card editors)
+  const f=feature(selFeature);
+  const list=state.pbis.filter(p=>p.featureId===selFeature);
+  const cards=list.map(p=>{
+    const teamOpts=`<option value="">—</option>`+state.teams.map(t=>`<option value="${t.id}" ${p.teamId===t.id?'selected':''}>${esc(t.name)}</option>`).join('');
+    const spOpts=`<option value="">backlog</option>`+state.sprints.map((s,i)=>`<option value="${s.id}" ${p.sprintId===s.id?'selected':''}>S${i+1}</option>`).join('');
+    const depCands=list.filter(x=>x.id!==p.id); // same feature only
+    const depChips=depCands.length
+      ? depCands.map(x=>`<span class="mini ${p.deps.includes(x.id)?'on':''}" onclick="toggleDep('${p.id}','${x.id}')">${esc(x.title)}</span>`).join(' ')
+      : '<span class="muted">no other PBIs in this feature</span>';
+    const viol=violations(p);
+    return `<div class="pbiedit">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <input value="${esc(p.title)}" oninput="setPbi('${p.id}','title',this.value)" placeholder="PBI title" style="flex:1;font-weight:600;margin-right:8px">
+        <button class="danger sm" onclick="delPbi('${p.id}')">✕</button>
+      </div>
+      <textarea oninput="setPbi('${p.id}','desc',this.value)" placeholder="Description…" style="margin-top:8px">${esc(p.desc||'')}</textarea>
+      <div class="fieldrow">
+        <label>Team <select onchange="setPbiMD('${p.id}','teamId',this.value)">${teamOpts}</select></label>
+        <label>Dev <input type="number" min="0" step="0.5" value="${p.eeDev}" oninput="setPbi('${p.id}','eeDev',+this.value)" style="width:56px"> d</label>
+        <label>QA <input type="number" min="0" step="0.5" value="${p.eeQA}" oninput="setPbi('${p.id}','eeQA',+this.value)" style="width:56px"> d</label>
+        <label>Sprint <select onchange="setPbiMD('${p.id}','sprintId',this.value)">${spOpts}</select></label>
+      </div>
+      <div class="deprow"><span>Depends on:</span> <span class="tag-deps">${depChips}</span>${viol.length?' <span class="dep">⚠ a dependency is in the same/later sprint</span>':''}</div>
+    </div>`;
+  }).join('');
+  dp.innerHTML=`<div class="row" style="justify-content:space-between;align-items:center">
+      <h3 style="margin:0"><span class="feat-dot" style="background:${featColor(f.id)}"></span> ${esc(f.title)} — PBIs</h3>
+      <button class="sm primary" onclick="addPbiToFeature('${f.id}')">+ Add PBI</button></div>
+    <div style="margin-top:10px">${cards||'<div class="empty">No PBIs for this feature yet.</div>'}</div>`;
+}
+function setPbiMD(id,k,v){setPbi(id,k,v);renderMasterDetail()}
+function addPbiToFeature(fid){
+  const t=state.teams[0];
+  state.pbis.push({id:uid('pb'),title:'New PBI',featureId:fid,teamId:t?t.id:null,eeDev:1,eeQA:0.5,sprintId:null,deps:[]});
+  selFeature=fid;commit();
+}
+
+/* ---------- Board ---------- */
+function renderBoardIfActive(){
+  if(!document.getElementById('tab-board').classList.contains('hidden'))renderBoard();
+}
+function renderBoard(){
+  const grid=document.getElementById('boardGrid');
+  const cols=state.sprints.length;
+  grid.style.gridTemplateColumns=`160px repeat(${cols}, minmax(230px,1fr))`;
+  let html='';
+  // header row
+  html+=`<div class="bcell bhead corner">Team</div>`;
+  state.sprints.forEach((sp,i)=>{
+    html+=`<div class="bcell bhead">S${i+1} · ${esc(sp.name)}<div class="muted" style="font-weight:400;font-size:11px">${sp.weeks}wk · ${workingDays(sp)}d</div></div>`;
+  });
+  // team rows
+  state.teams.forEach(t=>{
+    html+=`<div class="bcell blane">${esc(t.name)}<div class="muted" style="font-weight:400;font-size:11px">${t.members.length} members</div></div>`;
+    state.sprints.forEach(sp=>{
+      const devPool=teamPool(t,sp,'Dev'),qaPool=teamPool(t,sp,'QA');
+      const devDem=teamDemand(t.id,sp.id,'Dev'),qaDem=teamDemand(t.id,sp.id,'QA');
+      const cards=state.pbis.filter(p=>p.teamId===t.id&&p.sprintId===sp.id)
+        .sort((a,b)=>((feature(a.featureId)||{}).rank||99)-((feature(b.featureId)||{}).rank||99))
+        .map(pbiCard).join('');
+      html+=`<div class="bcell">
+        ${capBar('Dev',devDem,devPool)}
+        ${capBar('QA',qaDem,qaPool)}
+        <div class="dropzone" data-sprint="${sp.id}" data-team="${t.id}" style="margin-top:6px">${cards}</div>
+      </div>`;
+    });
+  });
+  grid.innerHTML=html;
+  wireDrop();
+  // backlog
+  const bz=document.getElementById('backlogZone');
+  const back=state.pbis.filter(p=>!p.sprintId);
+  bz.innerHTML=back.length?back.map(pbiCard).join(''):'<span class="empty">All PBIs placed 🎉</span>';
+  wireDrop();
+  renderLegend();
+  // stats
+  const tot=state.pbis.length,placed=state.pbis.filter(p=>p.sprintId).length;
+  const viol=state.pbis.reduce((a,p)=>a+(violations(p).length?1:0),0);
+  document.getElementById('boardStats').innerHTML=`${placed}/${tot} PBIs placed · `+
+    (viol?`<span style="color:var(--bad)">${viol} dependency conflict${viol>1?'s':''}</span>`:'<span style="color:var(--good)">no conflicts</span>');
+}
+function capBar(role,dem,pool){
+  const pct=pool>0?Math.min(100,dem/pool*100):(dem>0?100:0);
+  const over=dem>pool+1e-9;
+  const color=over?'var(--bad)':(role==='Dev'?'var(--dev)':'var(--qa)');
+  return `<div class="capbar"><div class="lab"><span><span class="swatch" style="background:${role==='Dev'?'var(--dev)':'var(--qa)'}"></span> ${role}</span>
+    <span style="color:${over?'var(--bad)':'var(--muted)'}">${dem.toFixed(1)} / ${pool.toFixed(1)} d${over?' ⚠':''}</span></div>
+    <div class="bar"><span style="width:${pct}%;background:${color}"></span></div></div>`;
+}
+function pbiCard(p){
+  const f=feature(p.featureId);
+  const viol=violations(p);
+  const depTxt=(p.deps&&p.deps.length)?`<span class="dep">⛓ ${p.deps.length} dep${p.deps.length>1?'s':''}${viol.length?' · ⚠ order':''}</span>`:'';
+  return `<div class="pbi ${viol.length?'viol':''}" draggable="true" data-id="${p.id}" title="${viol.length?'Dependency must finish in an earlier sprint':''}">
+    <div class="ttl"><span>${esc(p.title)}</span></div>
+    <div class="est"><span>Dev <b>${p.eeDev}</b>d</span><span>QA <b>${p.eeQA}</b>d</span></div>
+    <div class="feat"><span class="feat-dot" style="background:${featColor(p.featureId)}"></span>${f?esc(f.title):'—'} ${depTxt}</div>
+  </div>`;
+}
+function renderLegend(){
+  const el=document.getElementById('legend');
+  el.innerHTML=`<span><span class="swatch" style="background:var(--dev)"></span> Dev capacity</span>
+    <span><span class="swatch" style="background:var(--qa)"></span> QA capacity</span>
+    <span><span class="swatch" style="background:var(--bad)"></span> over-allocated / conflict</span>
+    <span class="muted">| Features:</span>`+
+    state.features.map(f=>`<span><span class="feat-dot" style="background:${featColor(f.id)}"></span>${esc(f.title)}</span>`).join('');
+}
+function wireDrop(){
+  document.querySelectorAll('.pbi[draggable]').forEach(c=>{
+    c.ondragstart=e=>{dragId=c.dataset.id;e.dataTransfer.effectAllowed='move'};
+    c.ondragend=()=>{dragId=null;document.querySelectorAll('.dropzone.over').forEach(z=>z.classList.remove('over'))};
+  });
+  document.querySelectorAll('.dropzone').forEach(z=>{
+    z.ondragover=e=>{e.preventDefault();z.classList.add('over')};
+    z.ondragleave=()=>z.classList.remove('over');
+    z.ondrop=e=>{
+      e.preventDefault();z.classList.remove('over');
+      if(!dragId)return;
+      const p=pbi(dragId);if(!p)return;
+      const sp=z.dataset.sprint||null;
+      const teamId=z.dataset.team;
+      if(teamId&&p.teamId&&teamId!==p.teamId){
+        // dropping into another team's lane reassigns team
+        p.teamId=teamId;
+      }
+      p.sprintId=sp||null;
+      commit();
+    };
+  });
+}
+
+/* ---------- Auto-fit ---------- */
+function autoFit(){
+  if(!confirm('Auto-fit will re-pack all PBIs by feature priority. Continue?'))return;
+  const res=_computeAutoFit(state);          // pure: computes placements without mutating state
+  state.pbis.forEach(p=>{p.sprintId=res.placements[p.id]||null});
+  commit();
+  showTab('board');
+  toast(res.unplaced.length?`Auto-fit done · ${res.unplaced.length} PBI(s) didn't fit (left in backlog)`:'Auto-fit complete — everything placed');
+}
+function clearPlacements(){
+  if(!confirm('Move all PBIs back to the backlog?'))return;
+  state.pbis.forEach(p=>p.sprintId=null);commit();
+}
+
+/* ---------- Render all ---------- */
+function renderAll(){
+  document.getElementById('piName').value=state.piName||'';
+  renderSprints();renderTeams();renderFeatures();renderMasterDetail();renderBoardIfActive();
+}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2200)}
+
+document.getElementById('piName').addEventListener('input',e=>{state.piName=e.target.value;save()});
+
+/* ---------- Theme ---------- */
+const THEME_KEY='pi-planner-theme';
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  const b=document.getElementById('themeBtn');
+  if(b)b.textContent=(t==='light'?'◑ Dark':'◐ Light');
+}
+function toggleTheme(){
+  const cur=document.documentElement.getAttribute('data-theme')==='light'?'light':'dark';
+  const next=cur==='light'?'dark':'light';
+  try{localStorage.setItem(THEME_KEY,next);}catch(e){}
+  applyTheme(next);
+}
+
+/* ---------- Boot ---------- */
+applyTheme(localStorage.getItem(THEME_KEY)||'dark');
+state=load()||defaultState();
+state=migrate(state);
+renderAll();
+save();
+</script>
+
+<!-- ===== Collaboration layer (added) ===== -->
+<script>
+/* =========================================================================
+   PI Planner — collaboration layer (additive).
+
+   This block does NOT change any existing app logic. It monkey-patches a few
+   global functions (save, showTab, renderMasterDetail) so that, WHEN the app is
+   served from the collaboration server over http(s), edits sync to all users.
+
+   Open the file directly (file://) and this layer stays dormant — the app
+   behaves exactly as the single-user, localStorage version.
+
+   Concurrency model:
+     • Feature breakdown is parallel — opening a feature acquires a per-feature
+       lock, so two people edit different features at once with no conflict.
+     • Program Board and Setup are global single-writer locks (one "driver",
+       everyone else read-only with a Take-over button).
+     • Locks are tied to heartbeats: stop sending them (crash / close tab) and
+       the server releases your locks within ~10s.
+   ========================================================================= */
+
+/* ---- field-level diff/merge (identical to server/patch.js) ---- */
+(function (root) {
+  function clone(x){return JSON.parse(JSON.stringify(x));}
+  function eq(a,b){return JSON.stringify(a)===JSON.stringify(b);}
+  function byId(arr){const m={};(arr||[]).forEach(o=>{m[o.id]=o;});return m;}
+  function diffList(base,cur){
+    const b=byId(base),c=byId(cur),upsert=[],remove=[];
+    for(const id in c){if(!b[id]||!eq(b[id],c[id]))upsert.push(clone(c[id]));}
+    for(const id in b){if(!c[id])remove.push(id);}
+    return (upsert.length||remove.length)?{upsert,remove}:null;
+  }
+  function diffPbis(base,cur){
+    const b=byId(base),c=byId(cur),upsert=[],remove=[];
+    for(const id in c){
+      const cv=c[id],bv=b[id];
+      if(!bv){upsert.push(clone(cv));continue;}
+      const ch={};let any=false;
+      for(const k in cv){if(!eq(cv[k],bv[k])){ch[k]=clone(cv[k]);any=true;}}
+      if(any){ch.id=id;upsert.push(ch);}
+    }
+    for(const id in b){if(!c[id])remove.push(id);}
+    return (upsert.length||remove.length)?{upsert,remove}:null;
+  }
+  function diffDoc(base,cur){
+    const p={};
+    if((base.piName||'')!==(cur.piName||''))p.piName=cur.piName||'';
+    const s=diffList(base.sprints,cur.sprints);if(s)p.sprints=s;
+    const t=diffList(base.teams,cur.teams);if(t)p.teams=t;
+    const f=diffList(base.features,cur.features);if(f)p.features=f;
+    const pb=diffPbis(base.pbis,cur.pbis);if(pb)p.pbis=pb;
+    return p;
+  }
+  function isEmpty(p){return !p||Object.keys(p).length===0;}
+  function applyList(arr,sub){
+    const m=byId(arr);
+    (sub.upsert||[]).forEach(o=>{m[o.id]=o;});
+    (sub.remove||[]).forEach(id=>{delete m[id];});
+    const out=[];
+    arr.forEach(o=>{if(m[o.id]){out.push(m[o.id]);delete m[o.id];}});
+    (sub.upsert||[]).forEach(o=>{if(m[o.id]){out.push(m[o.id]);delete m[o.id];}});
+    return out;
+  }
+  function applyPbis(arr,sub){
+    const m=byId(arr);
+    (sub.upsert||[]).forEach(o=>{if(m[o.id])Object.assign(m[o.id],o);else m[o.id]=clone(o);});
+    (sub.remove||[]).forEach(id=>{delete m[id];});
+    const out=[],seen={};
+    arr.forEach(o=>{if(m[o.id]){out.push(m[o.id]);seen[o.id]=1;}});
+    (sub.upsert||[]).forEach(o=>{if(m[o.id]&&!seen[o.id]){out.push(m[o.id]);seen[o.id]=1;}});
+    return out;
+  }
+  function applyPatch(doc,patch){
+    if(!patch)return doc;
+    if('piName' in patch)doc.piName=patch.piName;
+    if(patch.sprints)doc.sprints=applyList(doc.sprints||[],patch.sprints);
+    if(patch.teams)doc.teams=applyList(doc.teams||[],patch.teams);
+    if(patch.features)doc.features=applyList(doc.features||[],patch.features);
+    if(patch.pbis)doc.pbis=applyPbis(doc.pbis||[],patch.pbis);
+    return doc;
+  }
+  root.PIPatch={diffDoc,applyPatch,isEmpty,clone};
+})(window);
+
+/* ---- collaboration controller ---- */
+(function () {
+  const enabled = /^https?:$/.test(location.protocol);   // served by the server?
+  const BASE = location.origin;
+
+  // identity: clientId per TAB (so two tabs = two test users), name persists
+  let id = sessionStorage.getItem('pi-cid');
+  if (!id) { id = 'c_' + Math.random().toString(36).slice(2, 9); sessionStorage.setItem('pi-cid', id); }
+  let myName = localStorage.getItem('pi-name') || ('User-' + id.slice(-4));
+
+  const Collab = window.Collab = {
+    connected: false, name: myName, id,
+    base: null, locks: { board: null, setup: null, features: {} }, presence: [],
+    takeOver(scope) { lock(scope, 'acquire', true); },
+    rename() {
+      const n = prompt('Your name', Collab.name);
+      if (n && n.trim()) { Collab.name = n.trim(); localStorage.setItem('pi-name', Collab.name); heartbeat(); renderPresence(); }
+    },
+    onLocalChange() { if (Collab.connected) schedulePush(); },
+  };
+
+  if (!enabled) { return; }   // file:// → stay single-user, do nothing else
+
+  /* ---------- styling for collab UI ---------- */
+  const css = document.createElement('style');
+  css.textContent = `
+    #collabBar{display:flex;align-items:center;gap:6px;margin-left:4px}
+    .cdot{width:9px;height:9px;border-radius:50%;display:inline-block}
+    .cdot.on{background:var(--good)} .cdot.off{background:var(--muted)}
+    .cav{width:24px;height:24px;border-radius:50%;background:var(--accent2);color:#fff;
+      font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;
+      border:2px solid var(--panel);margin-left:-6px;cursor:default}
+    .cav.me{background:var(--accent);color:var(--onaccent)}
+    .lockban{background:rgba(245,158,11,.15);border:1px solid var(--warn);color:var(--txt);
+      border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:13px;display:flex;
+      align-items:center;gap:10px}
+  `;
+  document.head.appendChild(css);
+
+  // presence bar in the header (next to the PI name)
+  const bar = document.createElement('span');
+  bar.id = 'collabBar';
+  const header = document.querySelector('header');
+  const nameSpan = document.querySelector('header .piname');
+  header.insertBefore(bar, nameSpan ? nameSpan.nextSibling : null);
+
+  /* ---------- network ---------- */
+  function post(path, body) {
+    return fetch(BASE + path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }).then(r => r.json()).catch(() => null);
+  }
+
+  let pushTimer = null;
+  function schedulePush() { clearTimeout(pushTimer); pushTimer = setTimeout(pushDiff, 150); }
+  function pushDiff() {
+    if (!Collab.base) return;
+    const patch = PIPatch.diffDoc(Collab.base, state);
+    if (PIPatch.isEmpty(patch)) return;
+    Collab.base = PIPatch.clone(state);      // optimistic; set before send to avoid re-send races
+    post('/patch', { clientId: id, patch });
+  }
+
+  async function lock(scope, action, force) {
+    const d = await post('/lock', { clientId: id, scope, action, force: !!force });
+    if (!d) return false;
+    Collab.locks = d.locks; applyLockUI(); renderPresence();
+    if (action === 'acquire' && !d.ok) toast('🔒 ' + (d.holderName || 'Someone') + ' is editing this — read only');
+    return d.ok;
+  }
+
+  function heartbeat() { post('/heartbeat', { clientId: id, name: Collab.name, editing: currentEditing() }); }
+
+  /* ---------- presence + lock UI ---------- */
+  function renderPresence() {
+    if (!Collab.connected) { bar.innerHTML = '<span class="cdot off"></span><span class="muted">offline</span>'; return; }
+    const avatars = (Collab.presence || []).map(p => {
+      const ini = (p.name || '?').trim().slice(0, 2).toUpperCase();
+      const tip = esc(p.name) + (p.editing ? ' · ' + esc(p.editing) : '');
+      return `<span class="cav${p.id === id ? ' me' : ''}" title="${tip}">${esc(ini)}</span>`;
+    }).join('');
+    bar.innerHTML = `<span class="cdot on" title="connected"></span>${avatars}` +
+      `<button class="ghost sm" onclick="Collab.rename()" title="Change your name" style="margin-left:8px">${esc(Collab.name)}</button>`;
+  }
+
+  function visible(tab) { return !document.getElementById('tab-' + tab).classList.contains('hidden'); }
+  function disableInputs(el, off) { el.querySelectorAll('input,select,textarea,button').forEach(x => { if (!x.classList.contains('lockban-btn')) x.disabled = off; }); }
+  function overlay(el, name, scope) {
+    disableInputs(el, true);
+    let b = el.querySelector(':scope > .lockban');
+    if (!b) { b = document.createElement('div'); b.className = 'lockban'; el.insertBefore(b, el.firstChild); }
+    b.innerHTML = `🔒 <b>${esc(name || 'Someone')}</b> is editing — read only` +
+      ((scope === 'board' || scope === 'setup') ? ` <button class="sm lockban-btn" onclick="Collab.takeOver('${scope}')">Take over</button>` : '');
+  }
+  function clearOverlay(el) { const b = el.querySelector(':scope > .lockban'); if (b) b.remove(); disableInputs(el, false); }
+
+  function applyLockUI() {
+    if (!Collab.connected) return;
+    const L = Collab.locks || { features: {} };
+    const setup = document.getElementById('tab-setup');
+    const board = document.getElementById('tab-board');
+    if (visible('setup') && L.setup && L.setup.by !== id) overlay(setup, L.setup.name, 'setup'); else clearOverlay(setup);
+    if (visible('board') && L.board && L.board.by !== id) overlay(board, L.board.name, 'board'); else clearOverlay(board);
+    const pane = document.getElementById('featurePbiPane');
+    if (pane) {
+      const fl = selFeature && L.features && L.features[selFeature];
+      if (visible('backlog') && fl && fl.by !== id) overlay(pane, fl.name, 'feature:' + selFeature);
+      else clearOverlay(pane);
+    }
+  }
+
+  /* ---------- "what am I editing" (for presence) ---------- */
+  function currentEditing() {
+    if (visible('board')) return 'Program Board';
+    if (visible('setup')) return 'Setup';
+    if (visible('backlog')) {
+      const f = selFeature && state.features.find(x => x.id === selFeature);
+      return f ? 'Feature: ' + f.title : 'Features & PBIs';
+    }
+    return '';
+  }
+
+  /* ---------- lock orchestration ---------- */
+  let heldFeature = null;
+  function onFeatureView() {
+    if (!Collab.connected) return;
+    const want = visible('backlog') && selFeature ? selFeature : null;
+    if (want !== heldFeature) {
+      if (heldFeature) lock('feature:' + heldFeature, 'release');
+      heldFeature = want;
+      if (want) lock('feature:' + want, 'acquire');
+    }
+    heartbeat(); applyLockUI();
+  }
+  function onTabChange(name) {
+    if (!Collab.connected) return;
+    if (name !== 'setup') lock('setup', 'release');
+    if (name !== 'board') lock('board', 'release');
+    if (name !== 'backlog' && heldFeature) { lock('feature:' + heldFeature, 'release'); heldFeature = null; }
+    if (name === 'setup') lock('setup', 'acquire');
+    if (name === 'board') lock('board', 'acquire');
+    if (name === 'backlog') onFeatureView();
+    heartbeat(); applyLockUI();
+  }
+
+  /* ---------- re-render on remote change without nuking in-progress typing ---------- */
+  let renderTimer = null;
+  function scheduleRender() {
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(() => {
+      const a = document.activeElement;
+      if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) { scheduleRender(); return; } // wait until focus leaves
+      renderAll(); applyLockUI();
+    }, 400);
+  }
+
+  /* ---------- apply a full snapshot from the server ---------- */
+  function applyServerState(d) {
+    state = migrate(d.doc);
+    Collab.base = PIPatch.clone(state);
+    Collab.locks = d.locks || { features: {} };
+    Collab.presence = d.presence || [];
+    renderAll(); applyLockUI(); renderPresence();
+  }
+
+  /* ---------- monkey-patches (do not alter original behavior) ---------- */
+  const _save = save;
+  save = function () { _save(); Collab.onLocalChange(); };
+
+  const _showTab = showTab;
+  showTab = function (name) { _showTab(name); onTabChange(name); };
+
+  const _rmd = renderMasterDetail;
+  renderMasterDetail = function () { _rmd(); onFeatureView(); };
+
+  /* ---------- connect ---------- */
+  function connect() {
+    const es = new EventSource(`${BASE}/events?clientId=${encodeURIComponent(id)}&name=${encodeURIComponent(Collab.name)}`);
+    es.addEventListener('state', e => { Collab.connected = true; applyServerState(JSON.parse(e.data)); showTab('backlog'); });
+    es.addEventListener('patch', e => {
+      const { patch, by } = JSON.parse(e.data);
+      if (by === id) return;                 // our own echo — already applied locally
+      PIPatch.applyPatch(state, patch);
+      PIPatch.applyPatch(Collab.base, patch);
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (x) {}
+      scheduleRender();
+    });
+    es.addEventListener('locks', e => { Collab.locks = JSON.parse(e.data); applyLockUI(); renderPresence(); });
+    es.addEventListener('presence', e => { Collab.presence = JSON.parse(e.data); renderPresence(); });
+    es.onerror = () => { Collab.connected = false; renderPresence(); }; // EventSource auto-reconnects
+  }
+
+  // release my locks promptly when the tab closes (TTL would catch it anyway)
+  window.addEventListener('beforeunload', () => {
+    const send = scope => navigator.sendBeacon &&
+      navigator.sendBeacon(BASE + '/lock', new Blob([JSON.stringify({ clientId: id, scope, action: 'release' })], { type: 'application/json' }));
+    if (Collab.locks.board && Collab.locks.board.by === id) send('board');
+    if (Collab.locks.setup && Collab.locks.setup.by === id) send('setup');
+    if (heldFeature) send('feature:' + heldFeature);
+  });
+
+  renderPresence();
+  connect();
+  setInterval(heartbeat, 3000);
+})();
+
+</script>
+</body>
+</html>
