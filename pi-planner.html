@@ -341,14 +341,15 @@ function _renderPickerList(reg){
   list.innerHTML=reg.map(p=>{
     const d=p.lastSaved?new Date(p.lastSaved).toLocaleDateString(undefined,
       {year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
-    const delBtn=isServerMode?'':`<button class="danger sm" onclick="_deleteProject('${esc(p.id)}',event)" title="Delete project">✕</button>`;
-    return `<div class="proj-item" onclick="pickerOpenProject('${esc(p.id)}')">
+    const delBtn=`<button class="danger sm" onclick="_deleteProject('${esc(p.id)}',event)" title="Delete project">✕</button>`;
+    return `<div class="proj-item" data-proj-id="${esc(p.id)}" onclick="pickerOpenProject('${esc(p.id)}')">
       <div class="proj-info">
         <div class="proj-name">${esc(p.name||'Unnamed Project')}</div>
         ${d?`<div class="proj-meta">Last saved ${d}</div>`:''}
       </div>
       <div class="proj-actions">
         <button class="primary sm" onclick="pickerOpenProject('${esc(p.id)}');event.stopPropagation()">Open</button>
+        <button class="ghost sm" onclick="duplicateProject('${esc(p.id)}',event)" title="Duplicate this board">⧉ Duplicate</button>
         ${delBtn}
       </div>
     </div>`;
@@ -376,14 +377,24 @@ function pickerNewProject(){
       .catch(()=>toast('Could not create project on server'));
   } else {
     currentProjectId=uid('proj');
-    state=defaultState(); state.piName='';
+    state=defaultState();
+    state.piName=_makeUniqueName('New Plan',_loadRegistry().map(r=>r.name));
     _updateProjectRegistry();
     hidePicker(); renderAll(); save();
-    setTimeout(()=>document.getElementById('piName').focus(),80);
+    setTimeout(()=>{const el=document.getElementById('piName');el.focus();el.select();},80);
   }
 }
 function _deleteProject(id,ev){
   ev&&ev.stopPropagation();
+  if(isServerMode){
+    const item=document.querySelector(`[data-proj-id="${id}"] .proj-name`);
+    const nm=item?item.textContent:id;
+    if(!confirm('Delete "'+nm+'"? This cannot be undone.'))return;
+    fetch('/projects/'+encodeURIComponent(id),{method:'DELETE'})
+      .then(()=>fetch('/projects').then(r=>r.json()).then(_renderPickerList))
+      .catch(()=>toast('Could not delete project'));
+    return;
+  }
   const reg=_loadRegistry();
   const proj=reg.find(r=>r.id===id);
   if(!confirm('Delete "'+(proj?proj.name:id)+'"? This cannot be undone.'))return;
@@ -391,6 +402,41 @@ function _deleteProject(id,ev){
   _saveRegistry(reg.filter(r=>r.id!==id));
   if(id===currentProjectId)currentProjectId=null;
   showProjectPicker(_loadRegistry());
+}
+// Returns `desired` unless it collides (case-insensitive) with a name in
+// `taken`, in which case it appends " (2)", " (3)", … until unique.
+// Mirror of server/names.js makeUniqueName — keep the two in sync.
+function _makeUniqueName(desired,taken){
+  desired=String(desired==null?'':desired).trim()||'Untitled';
+  const set=new Set((taken||[]).map(n=>String(n==null?'':n).trim().toLowerCase()));
+  if(!set.has(desired.toLowerCase()))return desired;
+  const m=desired.match(/^(.*?)\s*\((\d+)\)$/);
+  const base=(m?m[1]:desired).trim()||'Untitled';
+  let n=m?(+m[2]+1):2;
+  while(set.has((base+' ('+n+')').toLowerCase()))n++;
+  return base+' ('+n+')';
+}
+function duplicateProject(id,ev){
+  ev&&ev.stopPropagation();
+  if(isServerMode){
+    fetch('/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:id})})
+      .then(r=>r.json())
+      .then(()=>fetch('/projects').then(r=>r.json()).then(_renderPickerList))
+      .catch(()=>toast('Could not duplicate project'));
+    return;
+  }
+  let doc=null;
+  try{const raw=localStorage.getItem('pi-planner-state-v1-'+id);if(raw)doc=migrate(JSON.parse(raw));}catch(e){}
+  if(!doc){toast('Could not read board to duplicate');return;}
+  const newId=uid('proj');
+  const names=_loadRegistry().map(r=>r.name);
+  doc.piName=_makeUniqueName((doc.piName||'Plan')+' (copy)',names);
+  try{localStorage.setItem('pi-planner-state-v1-'+newId,JSON.stringify(doc));}catch(e){toast('Could not save duplicate');return;}
+  const reg=_loadRegistry();
+  reg.push({id:newId,name:doc.piName,lastSaved:new Date().toISOString()});
+  _saveRegistry(reg);
+  showProjectPicker(_loadRegistry());
+  toast('Duplicated to "'+doc.piName+'"');
 }
 function switchProject(){
   if(isServerMode){
@@ -864,6 +910,21 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
   clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2200)}
 
 document.getElementById('piName').addEventListener('input',e=>{state.piName=e.target.value;save()});
+// On blur / Enter, ensure this board's name is unique across all boards.
+document.getElementById('piName').addEventListener('change',e=>{
+  const desired=e.target.value.trim();
+  const apply=names=>{
+    const uniq=_makeUniqueName(desired||'Untitled',names);
+    if(uniq!==desired){state.piName=uniq;e.target.value=uniq;save();toast('That name was taken — renamed to "'+uniq+'"');}
+  };
+  if(isServerMode){
+    fetch('/projects').then(r=>r.json())
+      .then(list=>apply((list||[]).filter(p=>p.id!==currentProjectId).map(p=>p.name)))
+      .catch(()=>{});
+  } else {
+    apply(_loadRegistry().filter(r=>r.id!==currentProjectId).map(r=>r.name));
+  }
+});
 
 /* ---------- Theme ---------- */
 const THEME_KEY='pi-planner-theme';

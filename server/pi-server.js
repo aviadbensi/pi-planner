@@ -26,6 +26,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { diffDoc, applyPatch, isEmpty } = require('./patch');
+const { makeUniqueName } = require('./names');
 
 const PORT = process.env.PORT || 4040;
 const ROOT = path.join(__dirname, '..');
@@ -136,6 +137,14 @@ function listProjects() {
   } catch (e) { return []; }
 }
 
+// Dedupe a project name against every other project — both flushed-to-disk
+// and still in memory (created within the last 300 ms save debounce).
+function uniqueProjectName(desired) {
+  const names = listProjects().map(p => p.name);
+  projectData.forEach(proj => { if (proj.doc) names.push(proj.doc.piName); });
+  return makeUniqueName(desired, names);
+}
+
 /* ---------- per-project runtime: clients + locks + presence ---------- */
 const projectRuntime = new Map();   // safeId → {clients: Map, locks: {board, setup, features}}
 
@@ -236,8 +245,17 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === '/projects' && req.method === 'POST') {
     const body = await readBody(req);
     const rawId = uid('proj');
-    const doc = seed();
-    if (body.name) doc.piName = body.name;
+    let doc;
+    if (body.from) {
+      // Duplicate an existing project (deep clone its current doc).
+      const src = loadProject(body.from);
+      doc = JSON.parse(JSON.stringify(src.doc));
+      doc.piName = (doc.piName || 'Plan') + ' (copy)';
+    } else {
+      doc = seed();
+      if (body.name) doc.piName = body.name;
+    }
+    doc.piName = uniqueProjectName(doc.piName);
     projectData.set(safeId(rawId), { doc, version: 0, saveTimer: null });
     persistProject(rawId);
     return sendJSON(res, { id: rawId, doc }, 201);
