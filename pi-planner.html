@@ -120,7 +120,10 @@
   .picker-box{background:var(--panel);border:1px solid var(--line);border-radius:14px;
     padding:36px 32px;width:100%;max-width:540px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
   .picker-box h1{margin:0 0 4px;font-size:24px;font-weight:700;letter-spacing:-.3px}
-  .picker-box .sub{color:var(--muted);font-size:13px;margin:0 0 24px}
+  .picker-box .sub{color:var(--muted);font-size:13px;margin:0 0 16px}
+  .picker-filter{width:100%;box-sizing:border-box;padding:9px 12px;margin:0 0 14px;border:1px solid var(--line);
+    border-radius:8px;background:var(--panel2);color:inherit;font-size:13px;font-family:inherit}
+  .picker-filter:focus{outline:none;border-color:var(--accent)}
   .proj-list{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;max-height:360px;overflow-y:auto}
   .proj-item{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--line);
     border-radius:8px;cursor:pointer;background:var(--panel2);transition:.12s}
@@ -139,6 +142,7 @@
   <div class="picker-box">
     <h1>PI Planner</h1>
     <p class="sub">Select a project to open, or start a new one.</p>
+    <input id="projFilter" class="picker-filter hidden" type="search" placeholder="Filter boards by name…" autocomplete="off" oninput="_applyPickerFilter()">
     <div id="projList" class="proj-list"></div>
     <button class="picker-new-btn" onclick="pickerNewProject()">＋ New Project</button>
   </div>
@@ -325,17 +329,33 @@ function _updateProjectRegistry(){
 }
 
 /* ---------- Project picker ---------- */
+let _pickerAll=[];
 function showProjectPicker(reg){
   document.getElementById('projectPicker').classList.remove('hidden');
+  const f=document.getElementById('projFilter'); if(f) f.value='';
   _renderPickerList(reg);
 }
 function hidePicker(){
   document.getElementById('projectPicker').classList.add('hidden');
 }
+function _applyPickerFilter(){ _renderFilteredProjects(); }
 function _renderPickerList(reg){
+  _pickerAll=Array.isArray(reg)?reg:[];
+  const f=document.getElementById('projFilter');
+  if(f) f.classList.toggle('hidden',_pickerAll.length<2);   // filter only useful with 2+ boards
+  _renderFilteredProjects();
+}
+function _renderFilteredProjects(){
   const list=document.getElementById('projList');
-  if(!reg||reg.length===0){
+  const fEl=document.getElementById('projFilter');
+  const q=(fEl?fEl.value:'').trim().toLowerCase();
+  if(!_pickerAll.length){
     list.innerHTML='<div class="muted" style="text-align:center;padding:24px;font-size:13px">No saved projects yet</div>';
+    return;
+  }
+  const reg=q?_pickerAll.filter(p=>String(p.name||'').toLowerCase().includes(q)):_pickerAll;
+  if(!reg.length){
+    list.innerHTML='<div class="muted" style="text-align:center;padding:24px;font-size:13px">No boards match “'+esc(q)+'”</div>';
     return;
   }
   list.innerHTML=reg.map(p=>{
@@ -440,6 +460,7 @@ function duplicateProject(id,ev){
 }
 function switchProject(){
   if(isServerMode){
+    const f=document.getElementById('projFilter'); if(f) f.value='';
     document.getElementById('projList').innerHTML='<div class="muted" style="text-align:center;padding:24px">Loading…</div>';
     document.getElementById('projectPicker').classList.remove('hidden');
     fetch('/projects').then(r=>r.json()).then(_renderPickerList).catch(()=>_renderPickerList([]));
