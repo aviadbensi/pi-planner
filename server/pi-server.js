@@ -1,20 +1,24 @@
 /*
- * PI Planner collaboration server — zero external dependencies.
+ * PI Planner collaboration server — multi-project support.
  *
  * Runs on one machine on the office LAN. Everyone points their browser at it:
  *     http://<this-machine>:4040
- * It serves pi-planner.html itself (so same origin, no CORS hassles), holds the
- * one canonical plan, broadcasts changes over Server-Sent Events, and arbitrates
- * locks. Locks are tied to client heartbeats, so a crashed browser tab can never
- * freeze a feature forever — its locks are released when its heartbeats stop.
  *
- * Endpoints:
- *   GET  /                serves pi-planner.html (and other static files)
- *   GET  /events         SSE stream: state, patch, locks, presence events
- *   GET  /state          one-shot snapshot {version, doc, locks, presence}
- *   POST /patch          {clientId, patch}      apply + broadcast a field-level patch
- *   POST /lock           {clientId, scope, action, force}   acquire/release a lock
- *   POST /heartbeat      {clientId, name, editing}          keep-alive + presence
+ * Each team's planning lives in a separate project file under server/projects/.
+ * Presence and locks are per-project — groups never see each other's cursors.
+ *
+ * Project endpoints:
+ *   GET  /projects              list all projects [{id, name, lastSaved}]
+ *   POST /projects              create a new project → {id, doc}
+ *   DELETE /projects/:id        delete a project
+ *
+ * Per-project endpoints (add ?project=<id> to every request; default = "default"):
+ *   GET  /                serves pi-planner.html
+ *   GET  /events          SSE stream: state, patch, locks, presence
+ *   GET  /state           one-shot snapshot
+ *   POST /patch           apply + broadcast a field-level patch
+ *   POST /lock            acquire/release a lock
+ *   POST /heartbeat       keep-alive + presence
  *
  * Start:  node server/pi-server.js     (PORT env var optional, default 4040)
  */
@@ -24,11 +28,25 @@ const path = require('path');
 const { diffDoc, applyPatch, isEmpty } = require('./patch');
 
 const PORT = process.env.PORT || 4040;
-const ROOT = path.join(__dirname, '..');        // the "PI Planner" folder
-const DATA = path.join(__dirname, 'plan.json'); // canonical persisted plan
-const HEARTBEAT_TTL = 10000;                    // drop client + its locks after 10s silent
+const ROOT = path.join(__dirname, '..');
+const PROJECTS_DIR = path.join(__dirname, 'projects');
+const HEARTBEAT_TTL = 10000;
 
-/* ---------- seed (mirrors the app's defaultState) ---------- */
+/* ---------- bootstrap: projects directory + migration ---------- */
+if (!fs.existsSync(PROJECTS_DIR)) {
+  fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+}
+// Migrate old single plan.json → projects/default.json
+const OLD_DATA = path.join(__dirname, 'plan.json');
+if (fs.existsSync(OLD_DATA)) {
+  const defaultPath = path.join(PROJECTS_DIR, 'default.json');
+  if (!fs.existsSync(defaultPath)) {
+    try { fs.copyFileSync(OLD_DATA, defaultPath); console.log('Migrated plan.json → projects/default.json'); }
+    catch (e) { console.warn('Migration warning:', e.message); }
+  }
+}
+
+/* ---------- seed ---------- */
 function uid(p) { return p + '_' + Math.random().toString(36).slice(2, 9); }
 function seed() {
   const s = [1, 2, 3, 4, 5].map(n => ({ id: uid('sp'), name: 'Sprint ' + n, weeks: 3, days: 15 }));
@@ -39,7 +57,7 @@ function seed() {
     { id: uid('ft'), title: 'Mobile push notifications', desc: 'Cross-platform delivery', rank: 3 },
   ];
   return {
-    piName: '2026 Q3',
+    piName: 'New PI Plan',
     sprints: s,
     teams: [
       { id: t1, name: 'Team Falcon', members: [
@@ -63,65 +81,124 @@ function seed() {
   };
 }
 
-/* ---------- canonical state ---------- */
-function loadDoc() {
-  try {
-    if (fs.existsSync(DATA)) {
-      const raw = fs.readFileSync(DATA, 'utf8').trim();
-      if (raw) return JSON.parse(raw);   // empty file → fall through to seed
-    }
-  } catch (e) { console.error('Could not read plan.json, starting from seed:', e.message); }
-  return seed();
+/* ---------- project ID sanitiser (prevent path traversal) ---------- */
+function safeId(id) {
+  return String(id || 'default').replace(/[^a-z0-9_\-]/gi, '_').slice(0, 64);
 }
-let doc = loadDoc();
-let version = 0;
-let saveTimer = null;
-function persist() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try { fs.writeFileSync(DATA, JSON.stringify(doc, null, 2)); }
-    catch (e) { console.error('persist failed:', e.message); }
+function getProjectPath(id) {
+  return path.join(PROJECTS_DIR, safeId(id) + '.json');
+}
+
+/* ---------- project data: doc + version + save timer ---------- */
+const projectData = new Map();   // safeId → {doc, version, saveTimer}
+
+function loadProject(rawId) {
+  const id = safeId(rawId);
+  if (projectData.has(id)) return projectData.get(id);
+  const fp = getProjectPath(id);
+  let doc;
+  try {
+    if (fs.existsSync(fp)) {
+      const raw = fs.readFileSync(fp, 'utf8').trim();
+      if (raw) doc = JSON.parse(raw);
+    }
+  } catch (e) { console.error(`Could not read project "${id}":`, e.message); }
+  if (!doc) doc = seed();
+  const proj = { doc, version: 0, saveTimer: null };
+  projectData.set(id, proj);
+  return proj;
+}
+
+function persistProject(rawId) {
+  const id = safeId(rawId);
+  const proj = projectData.get(id);
+  if (!proj) return;
+  clearTimeout(proj.saveTimer);
+  proj.saveTimer = setTimeout(() => {
+    try { fs.writeFileSync(getProjectPath(id), JSON.stringify(proj.doc, null, 2)); }
+    catch (e) { console.error(`persist failed for project "${id}":`, e.message); }
   }, 300);
 }
 
-/* ---------- clients, presence, locks ---------- */
-const clients = new Map();   // id -> {name, lastSeen, res|null, editing}
-const locks = { board: null, setup: null, features: {} }; // value = clientId
+function listProjects() {
+  try {
+    return fs.readdirSync(PROJECTS_DIR)
+      .filter(f => f.endsWith('.json'))
+      .map(f => {
+        const id = f.slice(0, -5);
+        const fp = path.join(PROJECTS_DIR, f);
+        let name = id;
+        try { const d = JSON.parse(fs.readFileSync(fp, 'utf8')); name = d.piName || id; } catch (e) {}
+        const stat = fs.statSync(fp);
+        return { id, name, lastSaved: stat.mtime.toISOString() };
+      })
+      .sort((a, b) => new Date(b.lastSaved) - new Date(a.lastSaved));
+  } catch (e) { return []; }
+}
 
-function nameOf(id) { const c = clients.get(id); return c ? c.name : null; }
-function locksView() {
+/* ---------- per-project runtime: clients + locks + presence ---------- */
+const projectRuntime = new Map();   // safeId → {clients: Map, locks: {board, setup, features}}
+
+function getRuntime(rawId) {
+  const id = safeId(rawId);
+  if (!projectRuntime.has(id)) {
+    projectRuntime.set(id, {
+      clients: new Map(),
+      locks: { board: null, setup: null, features: {} },
+    });
+  }
+  return projectRuntime.get(id);
+}
+
+function nameOf(rt, clientId) { const c = rt.clients.get(clientId); return c ? c.name : null; }
+
+function locksView(rt) {
   const feats = {};
-  for (const k in locks.features) if (locks.features[k]) feats[k] = { by: locks.features[k], name: nameOf(locks.features[k]) };
+  for (const k in rt.locks.features) {
+    if (rt.locks.features[k]) feats[k] = { by: rt.locks.features[k], name: nameOf(rt, rt.locks.features[k]) };
+  }
   return {
-    board: locks.board ? { by: locks.board, name: nameOf(locks.board) } : null,
-    setup: locks.setup ? { by: locks.setup, name: nameOf(locks.setup) } : null,
+    board: rt.locks.board ? { by: rt.locks.board, name: nameOf(rt, rt.locks.board) } : null,
+    setup: rt.locks.setup ? { by: rt.locks.setup, name: nameOf(rt, rt.locks.setup) } : null,
     features: feats,
   };
 }
-function presenceView() {
+
+function presenceView(rt) {
   const out = [];
-  clients.forEach((c, id) => out.push({ id, name: c.name, editing: c.editing || '' }));
+  rt.clients.forEach((c, cid) => out.push({ id: cid, name: c.name, editing: c.editing || '' }));
   return out;
 }
-function broadcast(event, data) {
+
+function broadcastTo(rawId, event, data) {
+  const rt = getRuntime(rawId);
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  clients.forEach(c => { if (c.res) { try { c.res.write(payload); } catch (e) {} } });
+  rt.clients.forEach(c => { if (c.res) { try { c.res.write(payload); } catch (e) {} } });
 }
 
-/* ---------- reaper: release locks of clients that stopped sending heartbeats ---------- */
+/* ---------- reaper: drop stale clients and release their locks ---------- */
 setInterval(() => {
-  const now = Date.now(); let lk = false, pr = false;
-  for (const [id, c] of clients) {
-    if (now - c.lastSeen > HEARTBEAT_TTL) {
-      if (c.res) { try { c.res.end(); } catch (e) {} }
-      clients.delete(id); pr = true;
-      if (locks.board === id) { locks.board = null; lk = true; }
-      if (locks.setup === id) { locks.setup = null; lk = true; }
-      for (const k in locks.features) if (locks.features[k] === id) { delete locks.features[k]; lk = true; }
+  const now = Date.now();
+  for (const [projectId, rt] of projectRuntime) {
+    let lk = false, pr = false;
+    for (const [clientId, c] of rt.clients) {
+      if (now - c.lastSeen > HEARTBEAT_TTL) {
+        if (c.res) { try { c.res.end(); } catch (e) {} }
+        rt.clients.delete(clientId); pr = true;
+        if (rt.locks.board === clientId) { rt.locks.board = null; lk = true; }
+        if (rt.locks.setup === clientId) { rt.locks.setup = null; lk = true; }
+        for (const k in rt.locks.features) {
+          if (rt.locks.features[k] === clientId) { delete rt.locks.features[k]; lk = true; }
+        }
+      }
+    }
+    if (lk) broadcastTo(projectId, 'locks', locksView(rt));
+    if (pr) broadcastTo(projectId, 'presence', presenceView(rt));
+    // Evict empty runtimes to free memory
+    if (rt.clients.size === 0 && !rt.locks.board && !rt.locks.setup && Object.keys(rt.locks.features).length === 0) {
+      projectRuntime.delete(projectId);
     }
   }
-  if (lk) broadcast('locks', locksView());
-  if (pr) broadcast('presence', presenceView());
 }, 3000);
 
 /* ---------- helpers ---------- */
@@ -144,16 +221,49 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     });
     return res.end();
   }
 
-  // SSE stream
+  /* ---- project management ---- */
+
+  if (u.pathname === '/projects' && req.method === 'GET') {
+    return sendJSON(res, listProjects());
+  }
+
+  if (u.pathname === '/projects' && req.method === 'POST') {
+    const body = await readBody(req);
+    const rawId = uid('proj');
+    const doc = seed();
+    if (body.name) doc.piName = body.name;
+    projectData.set(safeId(rawId), { doc, version: 0, saveTimer: null });
+    persistProject(rawId);
+    return sendJSON(res, { id: rawId, doc }, 201);
+  }
+
+  const delMatch = u.pathname.match(/^\/projects\/([^/]+)$/);
+  if (delMatch && req.method === 'DELETE') {
+    const id = safeId(delMatch[1]);
+    const proj = projectData.get(id);
+    if (proj) clearTimeout(proj.saveTimer);
+    projectData.delete(id);
+    projectRuntime.delete(id);
+    const fp = getProjectPath(id);
+    try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch (e) {}
+    return sendJSON(res, { ok: true });
+  }
+
+  /* ---- per-project endpoints ---- */
+  const projectId = u.searchParams.get('project') || 'default';
+
   if (u.pathname === '/events') {
-    const id = u.searchParams.get('clientId') || ('c_' + Math.random().toString(36).slice(2, 9));
+    const clientId = u.searchParams.get('clientId') || ('c_' + Math.random().toString(36).slice(2, 9));
     const name = u.searchParams.get('name') || 'Anon';
+    const proj = loadProject(projectId);
+    const rt = getRuntime(projectId);
+
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -161,37 +271,42 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Origin': '*',
     });
     res.write('retry: 3000\n\n');
-    const existing = clients.get(id);
-    clients.set(id, { name: existing ? existing.name : name, lastSeen: Date.now(), res, editing: existing ? existing.editing : '' });
-    res.write(`event: state\ndata: ${JSON.stringify({ version, doc, locks: locksView(), presence: presenceView() })}\n\n`);
-    broadcast('presence', presenceView());
-    req.on('close', () => { const c = clients.get(id); if (c && c.res === res) c.res = null; });
+    const existing = rt.clients.get(clientId);
+    rt.clients.set(clientId, { name: existing ? existing.name : name, lastSeen: Date.now(), res, editing: existing ? existing.editing : '' });
+    res.write(`event: state\ndata: ${JSON.stringify({ version: proj.version, doc: proj.doc, locks: locksView(rt), presence: presenceView(rt) })}\n\n`);
+    broadcastTo(projectId, 'presence', presenceView(rt));
+    req.on('close', () => { const c = rt.clients.get(clientId); if (c && c.res === res) c.res = null; });
     return;
   }
 
   if (u.pathname === '/state') {
-    return sendJSON(res, { version, doc, locks: locksView(), presence: presenceView() });
+    const proj = loadProject(projectId);
+    const rt = getRuntime(projectId);
+    return sendJSON(res, { version: proj.version, doc: proj.doc, locks: locksView(rt), presence: presenceView(rt) });
   }
 
   if (u.pathname === '/patch' && req.method === 'POST') {
     const { clientId, patch } = await readBody(req);
+    const proj = loadProject(projectId);
+    const rt = getRuntime(projectId);
     if (patch && !isEmpty(patch)) {
-      applyPatch(doc, patch); version++; persist();
-      broadcast('patch', { version, patch, by: clientId });
+      applyPatch(proj.doc, patch); proj.version++; persistProject(projectId);
+      broadcastTo(projectId, 'patch', { version: proj.version, patch, by: clientId });
     }
-    const c = clients.get(clientId); if (c) c.lastSeen = Date.now();
-    return sendJSON(res, { version });
+    const c = rt.clients.get(clientId); if (c) c.lastSeen = Date.now();
+    return sendJSON(res, { version: proj.version });
   }
 
   if (u.pathname === '/lock' && req.method === 'POST') {
     const { clientId, scope, action, force } = await readBody(req);
+    const rt = getRuntime(projectId);
     const isFeat = scope && scope.startsWith('feature:');
     const featId = isFeat ? scope.slice('feature:'.length) : null;
-    const get = () => scope === 'board' ? locks.board : scope === 'setup' ? locks.setup : (isFeat ? locks.features[featId] : undefined);
+    const get = () => scope === 'board' ? rt.locks.board : scope === 'setup' ? rt.locks.setup : (isFeat ? rt.locks.features[featId] : undefined);
     const set = v => {
-      if (scope === 'board') locks.board = v;
-      else if (scope === 'setup') locks.setup = v;
-      else if (isFeat) { if (v) locks.features[featId] = v; else delete locks.features[featId]; }
+      if (scope === 'board') rt.locks.board = v;
+      else if (scope === 'setup') rt.locks.setup = v;
+      else if (isFeat) { if (v) rt.locks.features[featId] = v; else delete rt.locks.features[featId]; }
     };
     const cur = get();
     let ok = true, holder = null;
@@ -201,22 +316,23 @@ const server = http.createServer(async (req, res) => {
     } else if (action === 'release') {
       if (cur === clientId) set(null);
     }
-    const c = clients.get(clientId); if (c) c.lastSeen = Date.now();
-    broadcast('locks', locksView());
-    return sendJSON(res, { ok, holder, holderName: holder ? nameOf(holder) : null, locks: locksView() });
+    const c = rt.clients.get(clientId); if (c) c.lastSeen = Date.now();
+    broadcastTo(projectId, 'locks', locksView(rt));
+    return sendJSON(res, { ok, holder, holderName: holder ? nameOf(rt, holder) : null, locks: locksView(rt) });
   }
 
   if (u.pathname === '/heartbeat' && req.method === 'POST') {
     const { clientId, name, editing } = await readBody(req);
-    let c = clients.get(clientId);
-    if (!c) { c = { name: name || 'Anon', res: null }; clients.set(clientId, c); }
+    const rt = getRuntime(projectId);
+    let c = rt.clients.get(clientId);
+    if (!c) { c = { name: name || 'Anon', res: null }; rt.clients.set(clientId, c); }
     c.lastSeen = Date.now();
     if (name) c.name = name;
     c.editing = editing || '';
     return sendJSON(res, { ok: true });
   }
 
-  // static files (pi-planner.html at "/", plus patch.js etc.)
+  // Static files (pi-planner.html at "/", plus patch.js etc.)
   let rel = u.pathname === '/' ? 'pi-planner.html' : decodeURIComponent(u.pathname.slice(1));
   const fp = path.normalize(path.join(ROOT, rel));
   if (fp.startsWith(ROOT) && fs.existsSync(fp) && fs.statSync(fp).isFile()) {
@@ -228,26 +344,29 @@ const server = http.createServer(async (req, res) => {
   res.end('Not found');
 });
 
-// Graceful shutdown: flush the latest plan, close SSE streams, then exit.
+/* ---------- graceful shutdown: flush all projects ---------- */
 let shuttingDown = false;
 function shutdown(sig) {
   if (shuttingDown) return; shuttingDown = true;
-  console.log(`\n${sig} received — saving plan and shutting down…`);
-  clearTimeout(saveTimer);
-  try { fs.writeFileSync(DATA, JSON.stringify(doc, null, 2)); } catch (e) { console.error('final save failed:', e.message); }
-  clients.forEach(c => { if (c.res) { try { c.res.end(); } catch (e) {} } });
+  console.log(`\n${sig} received — saving all projects and shutting down…`);
+  for (const [id, proj] of projectData) {
+    clearTimeout(proj.saveTimer);
+    try { fs.writeFileSync(getProjectPath(id), JSON.stringify(proj.doc, null, 2)); }
+    catch (e) { console.error(`final save failed for project "${id}":`, e.message); }
+  }
+  projectRuntime.forEach(rt => rt.clients.forEach(c => { if (c.res) { try { c.res.end(); } catch (e) {} } }));
   server.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 1500).unref();   // don't hang if a socket lingers
+  setTimeout(() => process.exit(0), 1500).unref();
 }
-process.on('SIGINT', () => shutdown('SIGINT'));    // Ctrl+C
-process.on('SIGTERM', () => shutdown('SIGTERM'));  // kill <PID>
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 server.on('error', err => {
   if (err.code === 'EADDRINUSE') {
     console.error(`\nPort ${PORT} is already in use — a PI Planner server is probably already running.`);
-    console.error(`  • Just open it:           http://localhost:${PORT}`);
-    console.error(`  • Or free the port:       lsof -ti:${PORT} | xargs kill`);
-    console.error(`  • Or use another port:    PORT=${(+PORT) + 1} node pi-server.js\n`);
+    console.error(`  • Just open it:     http://localhost:${PORT}`);
+    console.error(`  • Or free the port: lsof -ti:${PORT} | xargs kill`);
+    console.error(`  • Or another port:  PORT=${(+PORT) + 1} node pi-server.js\n`);
     process.exit(1);
   }
   throw err;
@@ -255,7 +374,7 @@ server.on('error', err => {
 
 server.listen(PORT, () => {
   console.log(`PI Planner collab server running.`);
-  console.log(`  Local:   http://localhost:${PORT}`);
-  console.log(`  Network: http://<this-machine-ip>:${PORT}   (share this with your team)`);
-  console.log(`  Plan saved to: ${DATA}`);
+  console.log(`  Local:    http://localhost:${PORT}`);
+  console.log(`  Network:  http://<this-machine-ip>:${PORT}   (share with your teams)`);
+  console.log(`  Projects: ${PROJECTS_DIR}`);
 });

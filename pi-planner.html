@@ -114,9 +114,36 @@
     border:1px solid var(--line);padding:10px 16px;border-radius:8px;font-size:13px;z-index:100;opacity:0;
     transition:.2s;pointer-events:none}
   .toast.show{opacity:1}
+  /* Project picker */
+  .project-picker{position:fixed;inset:0;background:rgba(15,20,25,.97);z-index:200;display:flex;
+    align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(4px)}
+  .picker-box{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:36px 32px;width:100%;max-width:540px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .picker-box h1{margin:0 0 4px;font-size:24px;font-weight:700;letter-spacing:-.3px}
+  .picker-box .sub{color:var(--muted);font-size:13px;margin:0 0 24px}
+  .proj-list{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;max-height:360px;overflow-y:auto}
+  .proj-item{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--line);
+    border-radius:8px;cursor:pointer;background:var(--panel2);transition:.12s}
+  .proj-item:hover{border-color:var(--accent);background:var(--hover)}
+  .proj-info{flex:1;min-width:0}
+  .proj-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .proj-meta{font-size:11px;color:var(--muted);margin-top:2px}
+  .proj-actions{display:flex;gap:6px;flex-shrink:0}
+  .picker-new-btn{width:100%;padding:11px;border:2px dashed var(--line);border-radius:8px;
+    background:transparent;color:var(--muted);font-size:14px;cursor:pointer;transition:.12s;font-family:inherit}
+  .picker-new-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(79,156,249,.06)}
 </style>
 </head>
 <body>
+<div id="projectPicker" class="project-picker hidden">
+  <div class="picker-box">
+    <h1>PI Planner</h1>
+    <p class="sub">Select a project to open, or start a new one.</p>
+    <div id="projList" class="proj-list"></div>
+    <button class="picker-new-btn" onclick="pickerNewProject()">＋ New Project</button>
+  </div>
+</div>
+
 <header>
   <h1>PI Planner</h1>
   <span class="piname">PI: <input id="piName" placeholder="PI name e.g. 2026 Q3"></span>
@@ -126,6 +153,7 @@
   <button class="ghost sm" onclick="doExport()">Export JSON</button>
   <button class="ghost sm" onclick="document.getElementById('importFile').click()">Import JSON</button>
   <input type="file" id="importFile" accept="application/json" class="hidden" onchange="doImport(event)">
+  <button class="ghost sm" onclick="switchProject()" title="Switch or create project">⊞ Projects</button>
   <button class="danger sm" onclick="resetAll()">Reset</button>
 </header>
 
@@ -203,10 +231,14 @@
 
 <script>
 /* ---------- State ---------- */
-const STORE_KEY = 'pi-planner-state-v1';
+const PROJECTS_REGISTRY_KEY = 'pi-planner-projects';
+let currentProjectId = null;
+const isServerMode = /^https?:$/.test(location.protocol);
 let state = null;
 let dragId = null;
 let selFeature = null;
+
+function getStoreKey(){ return 'pi-planner-state-v1-'+(currentProjectId||'default'); }
 
 function uid(p){return p+'_'+Math.random().toString(36).slice(2,9)}
 
@@ -246,17 +278,129 @@ function defaultState(){
 /* ---------- Persistence ---------- */
 let saveTimer=null;
 function save(){
-  localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  if(!isServerMode){
+    try{localStorage.setItem(getStoreKey(),JSON.stringify(state));}catch(e){}
+    _updateProjectRegistry();
+  }
   const el=document.getElementById('saveState');
   el.textContent='saving…';
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>{el.textContent='saved ✓'},250);
 }
 function load(){
-  try{const raw=localStorage.getItem(STORE_KEY);if(raw)return JSON.parse(raw);}catch(e){}
+  try{const raw=localStorage.getItem(getStoreKey());if(raw)return JSON.parse(raw);}catch(e){}
   return null;
 }
 function commit(){ save(); renderAll(); }
+
+/* ---------- Project registry (localStorage mode) ---------- */
+function _loadRegistry(){
+  try{const raw=localStorage.getItem(PROJECTS_REGISTRY_KEY);if(raw)return JSON.parse(raw);}catch(e){}
+  // Migrate from old single-project key if present
+  const OLD='pi-planner-state-v1';
+  try{
+    const oldData=localStorage.getItem(OLD);
+    if(oldData){
+      const parsed=JSON.parse(oldData);
+      const id=uid('proj');
+      localStorage.setItem('pi-planner-state-v1-'+id,oldData);
+      localStorage.removeItem(OLD);
+      const reg=[{id,name:parsed.piName||'My PI Plan',lastSaved:new Date().toISOString()}];
+      localStorage.setItem(PROJECTS_REGISTRY_KEY,JSON.stringify(reg));
+      return reg;
+    }
+  }catch(e){}
+  return [];
+}
+function _saveRegistry(reg){
+  try{localStorage.setItem(PROJECTS_REGISTRY_KEY,JSON.stringify(reg));}catch(e){}
+}
+function _updateProjectRegistry(){
+  if(!currentProjectId)return;
+  const reg=_loadRegistry();
+  const idx=reg.findIndex(r=>r.id===currentProjectId);
+  const entry={id:currentProjectId,name:(state&&state.piName)||'Unnamed Project',lastSaved:new Date().toISOString()};
+  if(idx>=0)reg[idx]=entry;else reg.push(entry);
+  _saveRegistry(reg);
+}
+
+/* ---------- Project picker ---------- */
+function showProjectPicker(reg){
+  document.getElementById('projectPicker').classList.remove('hidden');
+  _renderPickerList(reg);
+}
+function hidePicker(){
+  document.getElementById('projectPicker').classList.add('hidden');
+}
+function _renderPickerList(reg){
+  const list=document.getElementById('projList');
+  if(!reg||reg.length===0){
+    list.innerHTML='<div class="muted" style="text-align:center;padding:24px;font-size:13px">No saved projects yet</div>';
+    return;
+  }
+  list.innerHTML=reg.map(p=>{
+    const d=p.lastSaved?new Date(p.lastSaved).toLocaleDateString(undefined,
+      {year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+    const delBtn=isServerMode?'':`<button class="danger sm" onclick="_deleteProject('${esc(p.id)}',event)" title="Delete project">✕</button>`;
+    return `<div class="proj-item" onclick="pickerOpenProject('${esc(p.id)}')">
+      <div class="proj-info">
+        <div class="proj-name">${esc(p.name||'Unnamed Project')}</div>
+        ${d?`<div class="proj-meta">Last saved ${d}</div>`:''}
+      </div>
+      <div class="proj-actions">
+        <button class="primary sm" onclick="pickerOpenProject('${esc(p.id)}');event.stopPropagation()">Open</button>
+        ${delBtn}
+      </div>
+    </div>`;
+  }).join('');
+}
+function pickerOpenProject(id){
+  if(isServerMode){
+    currentProjectId=id;
+    if(window.Collab&&Collab.connectToProject) Collab.connectToProject(id);
+  } else {
+    currentProjectId=id;
+    const raw=localStorage.getItem('pi-planner-state-v1-'+id);
+    try{state=raw?migrate(JSON.parse(raw)):defaultState();}catch(e){state=defaultState();}
+    hidePicker(); renderAll(); save();
+  }
+}
+function pickerNewProject(){
+  if(isServerMode){
+    fetch('/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}' })
+      .then(r=>r.json())
+      .then(({id,doc})=>{
+        currentProjectId=id; state=migrate(doc);
+        if(window.Collab&&Collab.connectToProject) Collab.connectToProject(id);
+      })
+      .catch(()=>toast('Could not create project on server'));
+  } else {
+    currentProjectId=uid('proj');
+    state=defaultState(); state.piName='';
+    _updateProjectRegistry();
+    hidePicker(); renderAll(); save();
+    setTimeout(()=>document.getElementById('piName').focus(),80);
+  }
+}
+function _deleteProject(id,ev){
+  ev&&ev.stopPropagation();
+  const reg=_loadRegistry();
+  const proj=reg.find(r=>r.id===id);
+  if(!confirm('Delete "'+(proj?proj.name:id)+'"? This cannot be undone.'))return;
+  localStorage.removeItem('pi-planner-state-v1-'+id);
+  _saveRegistry(reg.filter(r=>r.id!==id));
+  if(id===currentProjectId)currentProjectId=null;
+  showProjectPicker(_loadRegistry());
+}
+function switchProject(){
+  if(isServerMode){
+    document.getElementById('projList').innerHTML='<div class="muted" style="text-align:center;padding:24px">Loading…</div>';
+    document.getElementById('projectPicker').classList.remove('hidden');
+    fetch('/projects').then(r=>r.json()).then(_renderPickerList).catch(()=>_renderPickerList([]));
+  } else {
+    showProjectPicker(_loadRegistry());
+  }
+}
 
 function doExport(){
   const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
@@ -737,10 +881,26 @@ function toggleTheme(){
 
 /* ---------- Boot ---------- */
 applyTheme(localStorage.getItem(THEME_KEY)||'dark');
-state=load()||defaultState();
-state=migrate(state);
-renderAll();
-save();
+if(isServerMode){
+  // Show project picker; collab layer will connect once a project is chosen
+  document.getElementById('projectPicker').classList.remove('hidden');
+  document.getElementById('projList').innerHTML='<div class="muted" style="text-align:center;padding:24px">Loading projects…</div>';
+  fetch('/projects').then(r=>r.json()).then(_renderPickerList)
+    .catch(()=>_renderPickerList([]));
+  state=defaultState(); renderAll();
+} else {
+  const _reg=_loadRegistry();
+  if(_reg.length===0){
+    // First launch — create first project and go straight to app
+    currentProjectId=uid('proj');
+    state=defaultState();
+    _updateProjectRegistry();
+    renderAll(); save();
+  } else {
+    state=defaultState(); renderAll();
+    showProjectPicker(_reg);
+  }
+}
 </script>
 
 <!-- ===== Collaboration layer (added) ===== -->
@@ -875,7 +1035,9 @@ save();
 
   /* ---------- network ---------- */
   function post(path, body) {
-    return fetch(BASE + path, {
+    const sep = path.includes('?') ? '&' : '?';
+    const url = BASE + path + (currentProjectId ? sep + 'project=' + encodeURIComponent(currentProjectId) : '');
+    return fetch(url, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     }).then(r => r.json()).catch(() => null);
   }
@@ -1003,34 +1165,42 @@ save();
   renderMasterDetail = function () { _rmd(); onFeatureView(); };
 
   /* ---------- connect ---------- */
-  function connect() {
-    const es = new EventSource(`${BASE}/events?clientId=${encodeURIComponent(id)}&name=${encodeURIComponent(Collab.name)}`);
-    es.addEventListener('state', e => { Collab.connected = true; applyServerState(JSON.parse(e.data)); showTab('backlog'); });
+  let _currentEs = null;
+  let _heartbeatTimer = null;
+  function doConnect(projId) {
+    if (_currentEs) { _currentEs.close(); _currentEs = null; }
+    if (_heartbeatTimer) { clearInterval(_heartbeatTimer); _heartbeatTimer = null; }
+    Collab.connected = false; renderPresence();
+    const projQ = projId ? '&project=' + encodeURIComponent(projId) : '';
+    const es = _currentEs = new EventSource(`${BASE}/events?clientId=${encodeURIComponent(id)}&name=${encodeURIComponent(Collab.name)}${projQ}`);
+    es.addEventListener('state', e => { Collab.connected = true; applyServerState(JSON.parse(e.data)); hidePicker(); showTab('backlog'); });
     es.addEventListener('patch', e => {
       const { patch, by } = JSON.parse(e.data);
       if (by === id) return;                 // our own echo — already applied locally
       PIPatch.applyPatch(state, patch);
       PIPatch.applyPatch(Collab.base, patch);
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (x) {}
+      try { localStorage.setItem(getStoreKey(), JSON.stringify(state)); } catch (x) {}
       scheduleRender();
     });
     es.addEventListener('locks', e => { Collab.locks = JSON.parse(e.data); applyLockUI(); renderPresence(); });
     es.addEventListener('presence', e => { Collab.presence = JSON.parse(e.data); renderPresence(); });
     es.onerror = () => { Collab.connected = false; renderPresence(); }; // EventSource auto-reconnects
+    _heartbeatTimer = setInterval(heartbeat, 3000);
   }
+  Collab.connectToProject = doConnect;
 
   // release my locks promptly when the tab closes (TTL would catch it anyway)
   window.addEventListener('beforeunload', () => {
+    const lockUrl = BASE + '/lock' + (currentProjectId ? '?project=' + encodeURIComponent(currentProjectId) : '');
     const send = scope => navigator.sendBeacon &&
-      navigator.sendBeacon(BASE + '/lock', new Blob([JSON.stringify({ clientId: id, scope, action: 'release' })], { type: 'application/json' }));
+      navigator.sendBeacon(lockUrl, new Blob([JSON.stringify({ clientId: id, scope, action: 'release' })], { type: 'application/json' }));
     if (Collab.locks.board && Collab.locks.board.by === id) send('board');
     if (Collab.locks.setup && Collab.locks.setup.by === id) send('setup');
     if (heldFeature) send('feature:' + heldFeature);
   });
 
   renderPresence();
-  connect();
-  setInterval(heartbeat, 3000);
+  // In server mode, doConnect is called by pickerOpenProject/pickerNewProject after project selection
 })();
 
 </script>
