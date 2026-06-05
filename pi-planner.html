@@ -173,10 +173,12 @@
     <div class="card">
       <h2>Sprints</h2>
       <div class="help">Working days per sprint = weeks &times; 5 (Sun&ndash;Thu). Edit length per sprint. PI supports 3&ndash;5 sprints.</div>
-      <div style="margin-top:12px;display:flex;align-items:center;gap:10px">
+      <div style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <label style="font-size:13px;color:var(--muted)">PI start date</label>
         <input type="date" id="piStartDate" style="font-family:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel2);color:inherit" onchange="state.piStartDate=this.value;commit()">
         <span class="muted" id="piDateRange" style="font-size:12px"></span>
+        <label style="font-size:13px;color:var(--muted);margin-left:8px" title="Number of the first sprint. Sprint names follow it (e.g. 60 → Sprint 60, 61, …). Leave blank to start at 1.">First sprint #</label>
+        <input type="number" min="1" step="1" id="sprintStartNum" placeholder="1" style="font-family:inherit;font-size:13px;padding:5px 8px;width:72px;border:1px solid var(--line);border-radius:6px;background:var(--panel2);color:inherit" onchange="setSprintStartNum(this.value)">
       </div>
       <div id="sprintEditor" style="margin-top:12px"></div>
       <div class="row" style="margin-top:12px">
@@ -262,6 +264,7 @@ function defaultState(){
   return {
     piName:'2026 Q3',
     piStartDate:'',
+    sprintStartNum:'',
     sprints:s,
     teams:[
       {id:t1,name:'Team Falcon',members:[
@@ -499,6 +502,7 @@ function doImport(ev){
 function migrate(d){
   d.piName=d.piName||'';
   d.piStartDate=d.piStartDate||'';
+  d.sprintStartNum=d.sprintStartNum||'';
   d.sprints=(d.sprints||[]).map(s=>{const w=s.weeks||3;return {id:s.id||uid('sp'),name:s.name||'Sprint',weeks:w,days:s.days!=null?+s.days:w*5}});
   d.teams=(d.teams||[]).map(t=>({id:t.id||uid('tm'),name:t.name||'Team',members:(t.members||[]).map(m=>({
     id:m.id||uid('mb'),name:m.name||'',role:m.role==='QA'?'QA':'Dev',cap:m.cap==null?100:m.cap,pto:m.pto||{}}))}));
@@ -611,8 +615,20 @@ function _sprintDates(sprints, piStartDate){
     return {start,end};
   });
 }
+// First sprint number → integer base. Blank / non-numeric / < 1 all fall back to 1.
+function _sprintStartBase(startNum){
+  const n=parseInt(startNum,10);
+  return (Number.isFinite(n)&&n>=1)?n:1;
+}
+// Sequential sprint names from a starting number, e.g. (3,'60') → ['Sprint 60','Sprint 61','Sprint 62'].
+function _sprintNames(count, startNum){
+  const base=_sprintStartBase(startNum);
+  const out=[];
+  for(let i=0;i<count;i++) out.push('Sprint '+(base+i));
+  return out;
+}
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={_workingDays,_defaultDays,_memberAvail,_teamPool,_teamDemand,_sprintIndex,_violations,_computeAutoFit,_sprintDates};
+  module.exports={_workingDays,_defaultDays,_memberAvail,_teamPool,_teamDemand,_sprintIndex,_violations,_computeAutoFit,_sprintDates,_sprintStartBase,_sprintNames};
 }
 /* ==PURE_LOGIC_END== */
 
@@ -642,9 +658,11 @@ function showTab(name){
 
 /* ---------- Setup: sprints ---------- */
 function renderSprints(){
-  // Sync the date input value
+  // Sync the date + first-sprint-number input values
   const dateEl=document.getElementById('piStartDate');
   if(dateEl) dateEl.value=state.piStartDate||'';
+  const numEl=document.getElementById('sprintStartNum');
+  if(numEl) numEl.value=state.sprintStartNum||'';
 
   const dates=sprintDates();
   // PI-wide range label
@@ -683,10 +701,19 @@ function setSprint(id,k,v){const sp=state.sprints.find(s=>s.id===id);sp[k]=v;
   if(k==='days'){save();renderTeams();renderBoardIfActive();document.getElementById('sprintHint').textContent=`${state.sprints.length} sprints (PI range 3–5).`;}
   else commit();}
 function setSprintWeeks(id,w){const sp=state.sprints.find(s=>s.id===id);sp.weeks=w;sp.days=w*5;commit()}
+// Set the first sprint number and renumber every sprint name to follow it.
+function setSprintStartNum(v){
+  state.sprintStartNum=String(v||'').trim();
+  const names=_sprintNames(state.sprints.length,state.sprintStartNum);
+  state.sprints.forEach((sp,i)=>{sp.name=names[i]});
+  commit();
+}
 function resetSprintDays(id){const sp=state.sprints.find(s=>s.id===id);sp.days=defaultDays(sp);commit()}
 function addSprint(){
   if(state.sprints.length>=5){toast('Max 5 sprints');return}
-  state.sprints.push({id:uid('sp'),name:'Sprint '+(state.sprints.length+1),weeks:3});commit();
+  // Continue the numbering sequence from the first-sprint-number setting.
+  const name='Sprint '+(_sprintStartBase(state.sprintStartNum)+state.sprints.length);
+  state.sprints.push({id:uid('sp'),name,weeks:3});commit();
 }
 function delSprint(id){
   if(state.sprints.length<=3){toast('Min 3 sprints');return}
@@ -1089,6 +1116,7 @@ if(isServerMode){
     const p={};
     if((base.piName||'')!==(cur.piName||''))p.piName=cur.piName||'';
     if((base.piStartDate||'')!==(cur.piStartDate||''))p.piStartDate=cur.piStartDate||'';
+    if((base.sprintStartNum||'')!==(cur.sprintStartNum||''))p.sprintStartNum=cur.sprintStartNum||'';
     const s=diffList(base.sprints,cur.sprints);if(s)p.sprints=s;
     const t=diffList(base.teams,cur.teams);if(t)p.teams=t;
     const f=diffList(base.features,cur.features);if(f)p.features=f;
@@ -1118,6 +1146,7 @@ if(isServerMode){
     if(!patch)return doc;
     if('piName' in patch)doc.piName=patch.piName;
     if('piStartDate' in patch)doc.piStartDate=patch.piStartDate;
+    if('sprintStartNum' in patch)doc.sprintStartNum=patch.sprintStartNum;
     if(patch.sprints)doc.sprints=applyList(doc.sprints||[],patch.sprints);
     if(patch.teams)doc.teams=applyList(doc.teams||[],patch.teams);
     if(patch.features)doc.features=applyList(doc.features||[],patch.features);

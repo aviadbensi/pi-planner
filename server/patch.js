@@ -49,6 +49,7 @@
     const p = {};
     if ((base.piName || '') !== (cur.piName || '')) p.piName = cur.piName || '';
     if ((base.piStartDate || '') !== (cur.piStartDate || '')) p.piStartDate = cur.piStartDate || '';
+    if ((base.sprintStartNum || '') !== (cur.sprintStartNum || '')) p.sprintStartNum = cur.sprintStartNum || '';
     const s = diffList(base.sprints, cur.sprints); if (s) p.sprints = s;
     const t = diffList(base.teams, cur.teams); if (t) p.teams = t;
     const f = diffList(base.features, cur.features); if (f) p.features = f;
@@ -87,6 +88,7 @@
     if (!patch) return doc;
     if ('piName' in patch) doc.piName = patch.piName;
     if ('piStartDate' in patch) doc.piStartDate = patch.piStartDate;
+    if ('sprintStartNum' in patch) doc.sprintStartNum = patch.sprintStartNum;
     if (patch.sprints) doc.sprints = applyList(doc.sprints || [], patch.sprints);
     if (patch.teams) doc.teams = applyList(doc.teams || [], patch.teams);
     if (patch.features) doc.features = applyList(doc.features || [], patch.features);

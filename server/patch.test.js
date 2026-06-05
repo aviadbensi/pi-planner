@@ -34,6 +34,14 @@ test('piName change produces a patch', () => {
   assert.strictEqual(applied.piName, 'PI-2');
 });
 
+test('sprintStartNum change is diffed and applied', () => {
+  const b = base(), c = clone(b); c.sprintStartNum = '60';
+  const p = diffDoc(b, c);
+  assert.strictEqual(p.sprintStartNum, '60');
+  const applied = applyPatch(clone(b), p);
+  assert.strictEqual(applied.sprintStartNum, '60');
+});
+
 test('piStartDate change is diffed and applied', () => {
   const b = base(), c = clone(b); c.piStartDate = '2026-09-06';
   const p = diffDoc(b, c);

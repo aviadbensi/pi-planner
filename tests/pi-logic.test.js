@@ -210,6 +210,31 @@ test('INVARIANT: after auto-fit no team/sprint is over-allocated', () => {
   }
 });
 
+/* ---------------- sprint numbering (first-sprint-number setting) ---------------- */
+test('sprintStartBase defaults to 1 for blank / invalid / < 1', () => {
+  assert.equal(L._sprintStartBase(''), 1);
+  assert.equal(L._sprintStartBase(null), 1);
+  assert.equal(L._sprintStartBase(undefined), 1);
+  assert.equal(L._sprintStartBase('abc'), 1);
+  assert.equal(L._sprintStartBase(0), 1);
+  assert.equal(L._sprintStartBase(-5), 1);
+});
+test('sprintStartBase uses a provided positive number', () => {
+  assert.equal(L._sprintStartBase(60), 60);
+  assert.equal(L._sprintStartBase('60'), 60);
+  assert.equal(L._sprintStartBase('7.9'), 7);   // parseInt truncates
+});
+test('sprintNames produces a consecutive Sprint sequence from the start number', () => {
+  assert.deepEqual(L._sprintNames(3, 60), ['Sprint 60', 'Sprint 61', 'Sprint 62']);
+  assert.deepEqual(L._sprintNames(2, '5'), ['Sprint 5', 'Sprint 6']);
+});
+test('sprintNames falls back to starting at 1 when no number is given', () => {
+  assert.deepEqual(L._sprintNames(4, ''), ['Sprint 1', 'Sprint 2', 'Sprint 3', 'Sprint 4']);
+});
+test('sprintNames returns an empty array for zero sprints', () => {
+  assert.deepEqual(L._sprintNames(0, 60), []);
+});
+
 /* ---------------- sprintDates (PI start date → sprint date ranges) ---------------- */
 const _dow = d => d.getDay();           // 0=Sun … 4=Thu … 6=Sat
 // Format using LOCAL date parts — _sprintDates builds Dates in local time,
