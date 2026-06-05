@@ -234,3 +234,52 @@ test('sprintNames falls back to starting at 1 when no number is given', () => {
 test('sprintNames returns an empty array for zero sprints', () => {
   assert.deepEqual(L._sprintNames(0, 60), []);
 });
+
+/* ---------------- sprintDates (PI start date → sprint date ranges) ---------------- */
+const _dow = d => d.getDay();           // 0=Sun … 4=Thu … 6=Sat
+// Format using LOCAL date parts — _sprintDates builds Dates in local time,
+// so toISOString() (UTC) would shift the day in non-UTC zones.
+const _iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+test('sprintDates returns all-null when no PI start date is set', () => {
+  const sprints = [{id:'s1',weeks:2},{id:'s2',weeks:2}];
+  const r = L._sprintDates(sprints, '');
+  assert.equal(r.length, 2);
+  assert.deepEqual(r, [{start:null,end:null},{start:null,end:null}]);
+});
+
+test('every sprint starts on a Sunday and ends on a Thursday', () => {
+  const sprints = [{id:'s1',weeks:1},{id:'s2',weeks:2},{id:'s3',weeks:3}];
+  const r = L._sprintDates(sprints, '2026-09-01'); // a Tuesday
+  for (const {start,end} of r) {
+    assert.equal(_dow(start), 0, `start ${_iso(start)} should be Sunday`);
+    assert.equal(_dow(end),   4, `end ${_iso(end)} should be Thursday`);
+  }
+});
+
+test('a mid-week start snaps forward to the next Sunday', () => {
+  // 2026-09-01 is Tue → next Sunday is 2026-09-06
+  const r = L._sprintDates([{id:'s1',weeks:2}], '2026-09-01');
+  assert.equal(_iso(r[0].start), '2026-09-06');
+});
+
+test('a Sunday start stays put; Fri and Sat snap to the following Sunday', () => {
+  // 2026-09-06 is Sun
+  assert.equal(_iso(L._sprintDates([{id:'s',weeks:1}], '2026-09-06')[0].start), '2026-09-06');
+  // 2026-09-04 Fri and 2026-09-05 Sat both → 2026-09-06
+  assert.equal(_iso(L._sprintDates([{id:'s',weeks:1}], '2026-09-04')[0].start), '2026-09-06');
+  assert.equal(_iso(L._sprintDates([{id:'s',weeks:1}], '2026-09-05')[0].start), '2026-09-06');
+});
+
+test('sprints chain back-to-back: next start is the prev end + 3 days (Thu→Sun)', () => {
+  const sprints = [{id:'s1',weeks:1},{id:'s2',weeks:2},{id:'s3',weeks:3}];
+  const r = L._sprintDates(sprints, '2026-09-06'); // Sunday
+  for (let i = 1; i < r.length; i++) {
+    const expected = new Date(r[i-1].end);
+    expected.setDate(expected.getDate() + 3);
+    assert.equal(_iso(r[i].start), _iso(expected), `sprint ${i} should start 3 days after prev end`);
+  }
+  // a 1-week sprint: Sun 09-06 → Thu 09-10
+  assert.equal(_iso(r[0].start), '2026-09-06');
+  assert.equal(_iso(r[0].end),   '2026-09-10');
+});

@@ -38,13 +38,18 @@ Opening `pi-planner.html` directly (double-click, `file://`) runs the original s
 
 ## Backup
 
-`plan.json` in this folder is the live plan. Copy it to back up; the in-app **Export JSON** also still works.
+Each board is a JSON file under `server/projects/` (one per board). Copy that folder to back up; the in-app **Export JSON** also still works. (A legacy single `plan.json` is migrated to `projects/default.json` on first run.)
 
 ## Endpoints (for reference)
+
+Per-project endpoints take `?project=<id>` (default `default`).
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | serves `pi-planner.html` |
+| GET | `/projects` | list all boards |
+| POST | `/projects` | create a board (pass `{from:<id>}` to duplicate one) |
+| DELETE | `/projects/:id` | delete a board |
 | GET | `/events` | SSE stream (state, patch, locks, presence) |
 | GET | `/state` | one-shot snapshot |
 | POST | `/patch` | apply a field-level change |

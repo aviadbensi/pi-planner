@@ -59,6 +59,7 @@ function seed() {
   ];
   return {
     piName: 'New PI Plan',
+    piStartDate: '',
     sprintStartNum: '',
     sprints: s,
     teams: [

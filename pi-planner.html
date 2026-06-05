@@ -755,17 +755,18 @@ function renderTeams(){
     wrap.appendChild(d);
   });
 }
-function setTeam(id,k,v){team(id)[k]=v;save();if(k==='name')renderAll();else renderTeams()}
+function setTeam(id,k,v){const t=team(id);if(!t)return;t[k]=v;save();if(k==='name')renderAll();else renderTeams()}
 function delTeam(id){
   if(!confirm('Delete this team and its members? PBIs assigned to it lose their team.'))return;
   state.pbis.forEach(p=>{if(p.teamId===id){p.teamId=null;p.sprintId=null}});
   state.teams=state.teams.filter(t=>t.id!==id);commit();
 }
 function addTeam(){state.teams.push({id:uid('tm'),name:'New Team',members:[]});commit()}
-function addMember(tId){team(tId).members.push({id:uid('mb'),name:'New Member',role:'Dev',cap:100,pto:{}});commit()}
-function delMember(tId,mId){const t=team(tId);t.members=t.members.filter(m=>m.id!==mId);commit()}
-function setMember(tId,mId,k,v){const m=team(tId).members.find(x=>x.id===mId);m[k]=v;save();renderTeams()}
-function setPto(tId,mId,spId,v){const m=team(tId).members.find(x=>x.id===mId);if(!m.pto)m.pto={};m.pto[spId]=+v||0;save();renderTeams()}
+// Guard against a team/member deleted by another client between render and edit (collab mode).
+function addMember(tId){const t=team(tId);if(!t)return;t.members.push({id:uid('mb'),name:'New Member',role:'Dev',cap:100,pto:{}});commit()}
+function delMember(tId,mId){const t=team(tId);if(!t)return;t.members=t.members.filter(m=>m.id!==mId);commit()}
+function setMember(tId,mId,k,v){const t=team(tId);if(!t)return;const m=t.members.find(x=>x.id===mId);if(!m)return;m[k]=v;save();renderTeams()}
+function setPto(tId,mId,spId,v){const t=team(tId);if(!t)return;const m=t.members.find(x=>x.id===mId);if(!m)return;if(!m.pto)m.pto={};m.pto[spId]=+v||0;save();renderTeams()}
 
 /* ---------- Features ---------- */
 function renderFeatures(){

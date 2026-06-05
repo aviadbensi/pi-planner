@@ -42,6 +42,26 @@ test('sprintStartNum change is diffed and applied', () => {
   assert.strictEqual(applied.sprintStartNum, '60');
 });
 
+test('piStartDate change is diffed and applied', () => {
+  const b = base(), c = clone(b); c.piStartDate = '2026-09-06';
+  const p = diffDoc(b, c);
+  assert.strictEqual(p.piStartDate, '2026-09-06');
+  const applied = applyPatch(clone(b), p);
+  assert.strictEqual(applied.piStartDate, '2026-09-06');
+});
+
+test('piStartDate merges alongside other field changes without clobbering', () => {
+  const b = base(), c = clone(b);
+  c.piStartDate = '2026-09-06';
+  c.piName = 'PI-2';
+  c.pbis[0].title = 'New title';
+  const p = diffDoc(b, c);
+  const applied = applyPatch(clone(b), p);
+  assert.strictEqual(applied.piStartDate, '2026-09-06');
+  assert.strictEqual(applied.piName, 'PI-2');
+  assert.strictEqual(applied.pbis[0].title, 'New title');
+});
+
 test('PBI title edit only sends the changed field', () => {
   const b = base(), c = clone(b); c.pbis[0].title = 'New title';
   const p = diffDoc(b, c);
