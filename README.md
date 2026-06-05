@@ -22,6 +22,7 @@ To start clean, use **Reset** (header) for sample data, or the clear actions in 
 ### Setup
 - **Sprints** — 3 to 5 per PI. Each sprint is 1, 2, or 3 weeks (default 3).
 - **Working days** — default to `5 × weeks`, but editable per sprint so you can subtract holidays or other non-working time. A *reset* button restores the default.
+- **PI start date** *(optional)* — set it and each sprint's start/end dates are calculated automatically (working week is **Sun–Thu**; sprints run back-to-back). The dates show in the sprint table and on the board.
 - **Teams & members** — add any number of teams. Each member has a role (**Dev** or **QA**), a **capacity %** (focus factor), and **PTO days per sprint**.
 
 ### Features & PBIs
@@ -37,6 +38,7 @@ To start clean, use **Reset** (header) for sample data, or the clear actions in 
 - Dependency-order conflicts are flagged in red.
 
 ### Other
+- **Multiple boards** — keep several PI plans side by side. The **Projects** picker lets you create a board from scratch, **duplicate** an existing one to tweak, filter by name, and delete. Board names are kept unique automatically.
 - **Light / dark theme** toggle (header), remembered across sessions.
 - **Clear actions** (Features & PBIs tab): *Clear plan* (unassign all sprint placements), *Clear all PBIs*, *Clear all features*.
 
@@ -101,4 +103,4 @@ PI Planner/
 
 ## Scope
 
-Built for capacity-based PI planning with cross-team (within-feature) dependencies. Out of scope for this version: real-time multi-user editing, authentication, and a server backend.
+Built for capacity-based PI planning with cross-team (within-feature) dependencies. The single HTML file runs standalone (no server). For real-time multi-user planning on a LAN, an **optional** zero-dependency collaboration server is included — see [`server/README.md`](server/README.md). Authentication is out of scope (the server is intended for a trusted network).
