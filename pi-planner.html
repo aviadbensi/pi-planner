@@ -172,7 +172,12 @@
   <section id="tab-setup">
     <div class="card">
       <h2>Sprints</h2>
-      <div class="help">Working days per sprint = weeks &times; 5. Edit length per sprint. PI supports 3&ndash;5 sprints.</div>
+      <div class="help">Working days per sprint = weeks &times; 5 (Sun&ndash;Thu). Edit length per sprint. PI supports 3&ndash;5 sprints.</div>
+      <div style="margin-top:12px;display:flex;align-items:center;gap:10px">
+        <label style="font-size:13px;color:var(--muted)">PI start date</label>
+        <input type="date" id="piStartDate" style="font-family:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel2);color:inherit" onchange="state.piStartDate=this.value;commit()">
+        <span class="muted" id="piDateRange" style="font-size:12px"></span>
+      </div>
       <div id="sprintEditor" style="margin-top:12px"></div>
       <div class="row" style="margin-top:12px">
         <button class="sm" onclick="addSprint()">+ Add sprint</button>
@@ -256,6 +261,7 @@ function defaultState(){
   ];
   return {
     piName:'2026 Q3',
+    piStartDate:'',
     sprints:s,
     teams:[
       {id:t1,name:'Team Falcon',members:[
@@ -492,6 +498,7 @@ function doImport(ev){
 }
 function migrate(d){
   d.piName=d.piName||'';
+  d.piStartDate=d.piStartDate||'';
   d.sprints=(d.sprints||[]).map(s=>{const w=s.weeks||3;return {id:s.id||uid('sp'),name:s.name||'Sprint',weeks:w,days:s.days!=null?+s.days:w*5}});
   d.teams=(d.teams||[]).map(t=>({id:t.id||uid('tm'),name:t.name||'Team',members:(t.members||[]).map(m=>({
     id:m.id||uid('mb'),name:m.name||'',role:m.role==='QA'?'QA':'Dev',cap:m.cap==null?100:m.cap,pto:m.pto||{}}))}));
@@ -581,8 +588,31 @@ function _computeAutoFit(plan){
   const unplaced=pbis.filter(p=>p.teamId&&!placed.has(p.id)).map(p=>p.id);
   return {placements,unplaced};
 }
+// Given a PI start date string (YYYY-MM-DD) and the sprints array, returns an
+// array of {start, end} objects (Date instances) for each sprint.
+// Working week is Sun–Thu. The PI start date is snapped to the nearest Sunday
+// (forward); each sprint then runs exactly weeks×7 calendar days, so start is
+// always Sunday and end is always Thursday.
+function _sprintDates(sprints, piStartDate){
+  if(!piStartDate) return sprints.map(()=>({start:null,end:null}));
+  // Parse as local date (split to avoid UTC-shift).
+  const [y,mo,d]=piStartDate.split('-').map(Number);
+  function addDays(dt,n){const r=new Date(dt);r.setDate(r.getDate()+n);return r;}
+  // Snap to next Sunday (0 offset if already Sunday).
+  // Formula: (7 - day) % 7 gives days until next Sunday for any weekday.
+  const base=new Date(y,mo-1,d);
+  const snap=(7-base.getDay())%7;
+  let cursor=addDays(base,snap);
+  return sprints.map(sp=>{
+    const weeks=sp.weeks||2;
+    const start=new Date(cursor);
+    const end=addDays(cursor,weeks*7-3);   // always a Thursday (Sun + 4, Sun + 11, … = Thu)
+    cursor=addDays(cursor,weeks*7);         // next Sunday
+    return {start,end};
+  });
+}
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={_workingDays,_defaultDays,_memberAvail,_teamPool,_teamDemand,_sprintIndex,_violations,_computeAutoFit};
+  module.exports={_workingDays,_defaultDays,_memberAvail,_teamPool,_teamDemand,_sprintIndex,_violations,_computeAutoFit,_sprintDates};
 }
 /* ==PURE_LOGIC_END== */
 
@@ -593,6 +623,12 @@ function memberAvail(m,sp){return _memberAvail(m,sp)}
 function teamPool(t,sp,role){return _teamPool(t,sp,role)}
 function teamDemand(tId,spId,role){return _teamDemand(state.pbis,tId,spId,role)}
 function violations(p){return _violations(p,state.pbis,state.sprints)}
+function sprintDates(){return _sprintDates(state.sprints,state.piStartDate)}
+
+// Format a Date for display: "Jun 2" or "Jun 2 – Jul 20"
+const _fmtOpts={month:'short',day:'numeric'};
+function _fmtDate(dt){return dt?dt.toLocaleDateString(undefined,_fmtOpts):'';}
+function _fmtRange(s,e){const sf=_fmtDate(s),ef=_fmtDate(e);return sf&&ef?sf+' – '+ef:''}
 
 /* ---------- Tabs ---------- */
 function showTab(name){
@@ -606,14 +642,29 @@ function showTab(name){
 
 /* ---------- Setup: sprints ---------- */
 function renderSprints(){
+  // Sync the date input value
+  const dateEl=document.getElementById('piStartDate');
+  if(dateEl) dateEl.value=state.piStartDate||'';
+
+  const dates=sprintDates();
+  // PI-wide range label
+  const rangeEl=document.getElementById('piDateRange');
+  if(rangeEl){
+    const first=dates[0]&&dates[0].start, last=dates[dates.length-1]&&dates[dates.length-1].end;
+    rangeEl.textContent=(first&&last)?'PI: '+_fmtRange(first,last):'';
+  }
+
+  const hasDates=!!(state.piStartDate);
   const wrap=document.getElementById('sprintEditor');
   wrap.innerHTML='';
   const tbl=document.createElement('table');
-  tbl.innerHTML='<thead><tr><th style="width:42px">#</th><th>Name</th><th style="width:110px">Weeks</th><th style="width:150px">Working days</th><th style="width:50px"></th></tr></thead>';
+  tbl.innerHTML=`<thead><tr><th style="width:42px">#</th><th>Name</th><th style="width:110px">Weeks</th><th style="width:150px">Working days</th>${hasDates?'<th style="width:160px">Dates</th>':''}<th style="width:50px"></th></tr></thead>`;
   const tb=document.createElement('tbody');
   state.sprints.forEach((sp,i)=>{
     const tr=document.createElement('tr');
     const isDefault=workingDays(sp)===defaultDays(sp);
+    const {start,end}=dates[i]||{};
+    const dateCell=hasDates?`<td style="font-size:12px;color:var(--muted);white-space:nowrap">${_fmtRange(start,end)}</td>`:'';
     tr.innerHTML=`<td>${i+1}</td>
       <td><input value="${esc(sp.name)}" oninput="setSprint('${sp.id}','name',this.value)" style="width:180px"></td>
       <td><select onchange="setSprintWeeks('${sp.id}',+this.value)">
@@ -621,6 +672,7 @@ function renderSprints(){
       </select></td>
       <td><input type="number" min="0" step="0.5" value="${workingDays(sp)}" oninput="setSprint('${sp.id}','days',+this.value)" style="width:62px"> d
         ${isDefault?'':`<button class="mini" title="Reset to ${defaultDays(sp)} (5 × weeks)" onclick="resetSprintDays('${sp.id}')">reset</button>`}</td>
+      ${dateCell}
       <td>${state.sprints.length>3?`<button class="danger sm" onclick="delSprint('${sp.id}')">✕</button>`:''}</td>`;
     tb.appendChild(tr);
   });
@@ -824,8 +876,11 @@ function renderBoard(){
   let html='';
   // header row
   html+=`<div class="bcell bhead corner">Team</div>`;
+  const _bdates=sprintDates();
   state.sprints.forEach((sp,i)=>{
-    html+=`<div class="bcell bhead">S${i+1} · ${esc(sp.name)}<div class="muted" style="font-weight:400;font-size:11px">${sp.weeks}wk · ${workingDays(sp)}d</div></div>`;
+    const {start,end}=_bdates[i]||{};
+    const dateStr=start&&end?`<div class="muted" style="font-weight:400;font-size:10px">${_fmtRange(start,end)}</div>`:'';
+    html+=`<div class="bcell bhead">S${i+1} · ${esc(sp.name)}<div class="muted" style="font-weight:400;font-size:11px">${sp.weeks}wk · ${workingDays(sp)}d</div>${dateStr}</div>`;
   });
   // team rows
   state.teams.forEach(t=>{
