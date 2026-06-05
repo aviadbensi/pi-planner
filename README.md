@@ -21,6 +21,7 @@ To start clean, use **Reset** (header) for sample data, or the clear actions in 
 
 ### Setup
 - **Sprints** — 3 to 5 per PI. Each sprint is 1, 2, or 3 weeks (default 3).
+- **First sprint #** *(optional)* — the number the PI's first sprint starts at; sprint names follow it (e.g. `60` → *Sprint 60, Sprint 61, …*). Leave it blank to start at 1.
 - **Working days** — default to `5 × weeks`, but editable per sprint so you can subtract holidays or other non-working time. A *reset* button restores the default.
 - **Teams & members** — add any number of teams. Each member has a role (**Dev** or **QA**), a **capacity %** (focus factor), and **PTO days per sprint**.
 

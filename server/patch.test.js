@@ -34,6 +34,14 @@ test('piName change produces a patch', () => {
   assert.strictEqual(applied.piName, 'PI-2');
 });
 
+test('sprintStartNum change is diffed and applied', () => {
+  const b = base(), c = clone(b); c.sprintStartNum = '60';
+  const p = diffDoc(b, c);
+  assert.strictEqual(p.sprintStartNum, '60');
+  const applied = applyPatch(clone(b), p);
+  assert.strictEqual(applied.sprintStartNum, '60');
+});
+
 test('PBI title edit only sends the changed field', () => {
   const b = base(), c = clone(b); c.pbis[0].title = 'New title';
   const p = diffDoc(b, c);

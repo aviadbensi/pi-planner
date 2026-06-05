@@ -59,6 +59,7 @@ function seed() {
   ];
   return {
     piName: 'New PI Plan',
+    sprintStartNum: '',
     sprints: s,
     teams: [
       { id: t1, name: 'Team Falcon', members: [
