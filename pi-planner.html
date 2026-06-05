@@ -788,7 +788,7 @@ function renderFeatures(){
     tb.appendChild(tr);
   });
 }
-function setFeature(id,k,v){feature(id)[k]=v;save();if(k==='title'){renderBoardIfActive();}}
+function setFeature(id,k,v){const f=feature(id);if(!f)return;f[k]=v;save();if(k==='title'){renderBoardIfActive();}}
 function addFeature(){state.features.push({id:uid('ft'),title:'New feature',desc:'',rank:state.features.length+1});commit()}
 function delFeature(id){
   if(!confirm('Delete feature? Its PBIs will be removed.'))return;
@@ -799,6 +799,7 @@ function reorderFeature(fromId,toId){
   if(fromId===toId)return;
   const arr=state.features;
   const from=arr.find(f=>f.id===fromId),to=arr.find(f=>f.id===toId);
+  if(!from||!to)return;
   const fr=from.rank,tr=to.rank;
   if(fr<tr){arr.forEach(f=>{if(f.rank>fr&&f.rank<=tr)f.rank--});from.rank=tr;}
   else{arr.forEach(f=>{if(f.rank>=tr&&f.rank<fr)f.rank++});from.rank=tr;}
@@ -806,7 +807,7 @@ function reorderFeature(fromId,toId){
 }
 
 /* ---------- PBIs ---------- */
-function setPbi(id,k,v){const p=pbi(id);
+function setPbi(id,k,v){const p=pbi(id);if(!p)return;
   if(k==='eeDev'||k==='eeQA')p[k]=+v;
   else if(k==='teamId'||k==='sprintId'||k==='featureId')p[k]=(v===''?null:v);
   else p[k]=v; // title, desc kept as text
@@ -816,7 +817,7 @@ function delPbi(id){
   state.pbis=state.pbis.filter(p=>p.id!==id);commit();
 }
 function toggleDep(id,depId){
-  const p=pbi(id);
+  const p=pbi(id);if(!p)return;
   if(p.deps.includes(depId))p.deps=p.deps.filter(d=>d!==depId);else p.deps.push(depId);
   commit();
 }
