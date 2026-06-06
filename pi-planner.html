@@ -188,7 +188,7 @@
     </div>
     <div class="card">
       <h2>Teams &amp; Members</h2>
-      <div class="help">Each member is a Dev or QA. Available days/sprint = (sprint working days &times; capacity%) &minus; PTO for that sprint.</div>
+      <div class="help">Each member is a Dev or QA. Available days/sprint = (sprint working days &minus; PTO) &times; capacity% &times; the team's PI Planning Factor.</div>
       <div id="teamEditor" style="margin-top:12px"></div>
       <button class="sm" style="margin-top:6px" onclick="addTeam()">+ Add team</button>
     </div>
@@ -267,12 +267,12 @@ function defaultState(){
     sprintStartNum:'',
     sprints:s,
     teams:[
-      {id:t1,name:'Team Falcon',members:[
+      {id:t1,name:'Team Falcon',piFactor:70,members:[
         {id:uid('mb'),name:'Alice',role:'Dev',cap:80,pto:{}},
         {id:uid('mb'),name:'Bob',role:'Dev',cap:100,pto:{}},
         {id:uid('mb'),name:'Carol',role:'QA',cap:90,pto:{}},
       ]},
-      {id:t2,name:'Team Phoenix',members:[
+      {id:t2,name:'Team Phoenix',piFactor:70,members:[
         {id:uid('mb'),name:'Dan',role:'Dev',cap:100,pto:{}},
         {id:uid('mb'),name:'Erin',role:'QA',cap:80,pto:{}},
       ]},
@@ -521,7 +521,7 @@ function migrate(d){
   d.piStartDate=d.piStartDate||'';
   d.sprintStartNum=d.sprintStartNum||'';
   d.sprints=(d.sprints||[]).map(s=>{const w=s.weeks||3;return {id:s.id||uid('sp'),name:s.name||'Sprint',weeks:w,days:s.days!=null?+s.days:w*5}});
-  d.teams=(d.teams||[]).map(t=>({id:t.id||uid('tm'),name:t.name||'Team',members:(t.members||[]).map(m=>({
+  d.teams=(d.teams||[]).map(t=>({id:t.id||uid('tm'),name:t.name||'Team',piFactor:t.piFactor==null?70:+t.piFactor,members:(t.members||[]).map(m=>({
     id:m.id||uid('mb'),name:m.name||'',role:m.role==='QA'?'QA':'Dev',cap:m.cap==null?100:m.cap,pto:m.pto||{}}))}));
   d.features=(d.features||[]).map((f,i)=>({id:f.id||uid('ft'),title:f.title||'',desc:f.desc||'',rank:f.rank||i+1}));
   d.pbis=(d.pbis||[]).map(p=>({id:p.id||uid('pb'),title:p.title||'',desc:p.desc||'',featureId:p.featureId||null,teamId:p.teamId||null,
@@ -549,14 +549,19 @@ const featColor=id=>{const i=Math.max(0,state.features.findIndex(f=>f.id===id));
    keep it pure (inputs in, values out) so the tests cover the real shipped code. */
 function _workingDays(sp){return sp.days!=null?sp.days:(sp.weeks||0)*5}
 function _defaultDays(sp){return (sp.weeks||0)*5}
-// member's available person-days in a sprint = working days × capacity% − PTO, floored at 0
-function _memberAvail(m,sp){
+// a team's PI Planning Factor as a fraction (default 0.70). Blank / non-numeric → 0.70.
+function _piFactor(t){const v=(t&&t.piFactor!=null)?+t.piFactor:70;return (Number.isFinite(v)?v:70)/100;}
+// member's available person-days in a sprint = (working days − PTO) × capacity% × PI factor, floored at 0.
+// piFactor defaults to 1 (no reduction) when called without a team factor.
+function _memberAvail(m,sp,piFactor){
   const pto=(m.pto&&m.pto[sp.id])?+m.pto[sp.id]:0;
-  return Math.max(0, _workingDays(sp)*(m.cap/100) - pto);
+  const f=piFactor==null?1:piFactor;
+  return Math.max(0, (_workingDays(sp)-pto)*(m.cap/100)*f);
 }
-// team capacity pool for a sprint, summed over members of one role
+// team capacity pool for a sprint, summed over members of one role, scaled by the team's PI factor
 function _teamPool(t,sp,role){
-  return t.members.filter(m=>m.role===role).reduce((a,m)=>a+_memberAvail(m,sp),0);
+  const f=_piFactor(t);
+  return t.members.filter(m=>m.role===role).reduce((a,m)=>a+_memberAvail(m,sp,f),0);
 }
 // total effort demanded of a team in a sprint for one role
 function _teamDemand(pbis,tId,spId,role){
@@ -645,7 +650,7 @@ function _sprintNames(count, startNum){
   return out;
 }
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={_workingDays,_defaultDays,_memberAvail,_teamPool,_teamDemand,_sprintIndex,_violations,_computeAutoFit,_sprintDates,_sprintStartBase,_sprintNames};
+  module.exports={_workingDays,_defaultDays,_piFactor,_memberAvail,_teamPool,_teamDemand,_sprintIndex,_violations,_computeAutoFit,_sprintDates,_sprintStartBase,_sprintNames};
 }
 /* ==PURE_LOGIC_END== */
 
@@ -746,7 +751,11 @@ function renderTeams(){
   state.teams.forEach(t=>{
     const d=document.createElement('div');d.className='card';d.style.background='var(--panel2)';
     let head=`<div class="row" style="justify-content:space-between">
-      <input value="${esc(t.name)}" oninput="setTeam('${t.id}','name',this.value)" style="font-weight:600;width:240px">
+      <div class="row" style="gap:10px">
+        <input value="${esc(t.name)}" oninput="setTeam('${t.id}','name',this.value)" style="font-weight:600;width:240px">
+        <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:4px" title="PI Planning Factor: reduces each member's available days for this team. Applied after capacity% and PTO. Default 70%.">PI factor
+          <input type="number" min="0" max="100" step="5" value="${t.piFactor==null?70:t.piFactor}" oninput="setTeamPiFactor('${t.id}',this.value)" onchange="commitTeamPiFactor('${t.id}',this.value)" style="width:58px"> %</label>
+      </div>
       <button class="danger sm" onclick="delTeam('${t.id}')">Delete team</button></div>`;
     const ptoCols=state.sprints.map((sp,i)=>`<th title="${esc(sp.name)}">PTO S${i+1}</th>`).join('');
     let rows=t.members.map(m=>{
@@ -773,12 +782,17 @@ function renderTeams(){
   });
 }
 function setTeam(id,k,v){const t=team(id);if(!t)return;t[k]=v;save();_reRender(k==='name'?renderAll:renderTeams)}
+function _clampPiFactor(v){return Math.max(0,Math.min(100,Math.round(+v||0)));}
+// PI factor is a number field: live-update without re-rendering so the caret doesn't bounce,
+// then re-render on blur so the pool summary (which depends on it) refreshes.
+function setTeamPiFactor(id,v){const t=team(id);if(!t)return;t.piFactor=_clampPiFactor(v);save();}
+function commitTeamPiFactor(id,v){const t=team(id);if(!t)return;t.piFactor=_clampPiFactor(v);save();_reRender(renderTeams);}
 function delTeam(id){
   if(!confirm('Delete this team and its members? PBIs assigned to it lose their team.'))return;
   state.pbis.forEach(p=>{if(p.teamId===id){p.teamId=null;p.sprintId=null}});
   state.teams=state.teams.filter(t=>t.id!==id);commit();
 }
-function addTeam(){state.teams.push({id:uid('tm'),name:'New Team',members:[]});commit()}
+function addTeam(){state.teams.push({id:uid('tm'),name:'New Team',piFactor:70,members:[]});commit()}
 // Guard against a team/member deleted by another client between render and edit (collab mode).
 function addMember(tId){const t=team(tId);if(!t)return;t.members.push({id:uid('mb'),name:'New Member',role:'Dev',cap:100,pto:{}});commit()}
 function delMember(tId,mId){const t=team(tId);if(!t)return;t.members=t.members.filter(m=>m.id!==mId);commit()}

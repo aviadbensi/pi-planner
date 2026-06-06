@@ -42,25 +42,50 @@ test('defaultDays ignores the override and reports 5 × weeks', () => {
 
 /* ---------------- memberAvail ---------------- */
 const SP = {id:'s', weeks:3}; // 15 working days
-test('memberAvail = workingDays × capacity% − PTO', () => {
+// Called without a PI factor, memberAvail applies no reduction (factor = 1).
+test('memberAvail = (workingDays − PTO) × capacity%', () => {
   assert.equal(L._memberAvail({cap:100, pto:{}}, SP), 15);
   assert.equal(L._memberAvail({cap:80,  pto:{}}, SP), 12);
-  assert.equal(L._memberAvail({cap:80,  pto:{s:2}}, SP), 10);
+  assert.equal(L._memberAvail({cap:80,  pto:{s:2}}, SP), 10.4); // (15−2)×0.8
   assert.equal(L._memberAvail({cap:50,  pto:{}}, {id:'x', weeks:2}), 5);
+});
+test('memberAvail applies the PI factor last', () => {
+  assert.equal(L._memberAvail({cap:100, pto:{}}, SP, 0.7), 10.5);     // 15×1.0×0.7
+  assert.equal(L._memberAvail({cap:80,  pto:{s:2}}, SP, 0.5), 5.2);   // (15−2)×0.8×0.5
 });
 test('memberAvail never goes negative', () => {
   assert.equal(L._memberAvail({cap:100, pto:{s:99}}, SP), 0);
+  assert.equal(L._memberAvail({cap:100, pto:{s:99}}, SP, 0.7), 0);
+});
+
+/* ---------------- piFactor ---------------- */
+test('piFactor defaults to 0.70 and reads the team value as a fraction', () => {
+  assert.equal(L._piFactor({}), 0.7);            // missing → default
+  assert.equal(L._piFactor({piFactor:null}), 0.7);
+  assert.equal(L._piFactor({piFactor:'abc'}), 0.7); // non-numeric → default
+  assert.equal(L._piFactor({piFactor:100}), 1);
+  assert.equal(L._piFactor({piFactor:0}), 0);
+  assert.equal(L._piFactor({piFactor:85}), 0.85);
 });
 
 /* ---------------- teamPool (separate Dev / QA) ---------------- */
-test('teamPool sums only the requested role', () => {
-  const t = {members:[
+test('teamPool sums only the requested role (PI factor 100%)', () => {
+  const t = {piFactor:100, members:[
     {role:'Dev', cap:100, pto:{}}, // 15
     {role:'Dev', cap:80,  pto:{}}, // 12
     {role:'QA',  cap:90,  pto:{}}, // 13.5
   ]};
   assert.equal(L._teamPool(t, SP, 'Dev'), 27);
   assert.equal(L._teamPool(t, SP, 'QA'), 13.5);
+});
+test('teamPool scales the pool by the team PI factor (default 70%)', () => {
+  const t = {members:[                 // no piFactor → default 0.70
+    {role:'Dev', cap:100, pto:{}},     // 15 × 0.7 = 10.5
+    {role:'Dev', cap:80,  pto:{}},     // 12 × 0.7 = 8.4
+    {role:'QA',  cap:90,  pto:{}},     // 13.5 × 0.7 = 9.45
+  ]};
+  assert.ok(Math.abs(L._teamPool(t, SP, 'Dev') - 18.9) < 1e-9);
+  assert.ok(Math.abs(L._teamPool(t, SP, 'QA') - 9.45) < 1e-9);
 });
 
 /* ---------------- teamDemand ---------------- */
@@ -154,7 +179,7 @@ test('auto-fit honors feature priority when capacity is scarce', () => {
   const features = [{id:'hi', rank:1}, {id:'lo', rank:2}];
   const p = {
     sprints:[A], features,
-    teams:[{id:'t', members:[{role:'Dev',cap:100,pto:{}},{role:'QA',cap:100,pto:{}}]}],
+    teams:[{id:'t', piFactor:100, members:[{role:'Dev',cap:100,pto:{}},{role:'QA',cap:100,pto:{}}]}],
     pbis:[
       {id:'low',  teamId:'t', featureId:'lo', eeDev:5, eeQA:0, deps:[]}, // listed first but lower priority
       {id:'high', teamId:'t', featureId:'hi', eeDev:5, eeQA:0, deps:[]},

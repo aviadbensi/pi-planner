@@ -36,7 +36,7 @@ All UI, state, and planning logic lives in one HTML file. The planning math is i
 
 This block is pure JavaScript with no DOM access. It exports functions via a `module.exports`-style pattern so `tests/pi-logic.test.js` can extract and run the real code (not a copy). If you change the capacity, auto-fit, dependency, or sprint-date logic (`_sprintDates`), keep it inside this block.
 
-The state document holds `piName`, an optional `piStartDate` (YYYY-MM-DD; sprint start/end dates are derived from it via `_sprintDates`, working week Sun–Thu), and the `sprints`/`teams`/`features`/`pbis` arrays. Data is persisted to `localStorage`; Export/Import JSON is the portable format. Multiple boards ("projects") are supported, each under its own `localStorage` key (standalone) or JSON file (server).
+The state document holds `piName`, an optional `piStartDate` (YYYY-MM-DD; sprint start/end dates are derived from it via `_sprintDates`, working week Sun–Thu), and the `sprints`/`teams`/`features`/`pbis` arrays. Each team carries a `piFactor` (the PI Planning Factor, a percentage, default 70) that scales its capacity pool — a member's available days/sprint = (working days − PTO) × capacity% × the team's PI factor (see `_memberAvail`/`_teamPool`/`_piFactor` in the pure-logic block). Data is persisted to `localStorage`; Export/Import JSON is the portable format. Multiple boards ("projects") are supported, each under its own `localStorage` key (standalone) or JSON file (server).
 
 ### Collaboration server (`server/`)
 
