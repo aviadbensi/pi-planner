@@ -304,7 +304,24 @@ function load(){
   try{const raw=localStorage.getItem(getStoreKey());if(raw)return JSON.parse(raw);}catch(e){}
   return null;
 }
-function commit(){ save(); renderAll(); }
+function commit(){ save(); _reRender(renderAll); }
+// Re-rendering a section via innerHTML destroys the input the user is typing in,
+// which drops focus after one keystroke. Capture the focused field (identified by
+// its handler signature) and caret, run the render, then restore both.
+function _reRender(fn){
+  const a=document.activeElement;
+  let sig=null,ss=null,se=null;
+  if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT')){
+    sig=a.getAttribute('oninput')||a.getAttribute('onchange');
+    try{ss=a.selectionStart;se=a.selectionEnd;}catch(e){}
+  }
+  fn();
+  if(sig){
+    const el=[...document.querySelectorAll('input,textarea,select')]
+      .find(n=>(n.getAttribute('oninput')||n.getAttribute('onchange'))===sig);
+    if(el){el.focus();try{if(ss!=null)el.setSelectionRange(ss,se);}catch(e){}}
+  }
+}
 
 /* ---------- Project registry (localStorage mode) ---------- */
 function _loadRegistry(){
@@ -698,7 +715,7 @@ function renderSprints(){
   document.getElementById('sprintHint').textContent=`${state.sprints.length} sprints (PI range 3–5).`;
 }
 function setSprint(id,k,v){const sp=state.sprints.find(s=>s.id===id);sp[k]=v;
-  if(k==='days'){save();renderTeams();renderBoardIfActive();document.getElementById('sprintHint').textContent=`${state.sprints.length} sprints (PI range 3–5).`;}
+  if(k==='days'){save();_reRender(()=>{renderTeams();renderBoardIfActive();});document.getElementById('sprintHint').textContent=`${state.sprints.length} sprints (PI range 3–5).`;}
   else commit();}
 function setSprintWeeks(id,w){const sp=state.sprints.find(s=>s.id===id);sp.weeks=w;sp.days=w*5;commit()}
 // Set the first sprint number and renumber every sprint name to follow it.
@@ -738,7 +755,7 @@ function renderTeams(){
         <td><input value="${esc(m.name)}" oninput="setMember('${t.id}','${m.id}','name',this.value)" style="width:120px"></td>
         <td><select onchange="setMember('${t.id}','${m.id}','role',this.value)">
           <option ${m.role==='Dev'?'selected':''}>Dev</option><option ${m.role==='QA'?'selected':''}>QA</option></select></td>
-        <td><input type="number" min="0" max="100" value="${m.cap}" oninput="setMember('${t.id}','${m.id}','cap',+this.value)"> %</td>
+        <td><input type="number" min="0" max="100" step="10" value="${m.cap}" onkeydown="capKey(event,'${t.id}','${m.id}')" oninput="setMemberCap('${t.id}','${m.id}',this.value)" onchange="commitMemberCap('${t.id}','${m.id}',this.value)"> %</td>
         ${pto}
         <td><button class="danger sm" onclick="delMember('${t.id}','${m.id}')">✕</button></td></tr>`;
     }).join('');
@@ -755,7 +772,7 @@ function renderTeams(){
     wrap.appendChild(d);
   });
 }
-function setTeam(id,k,v){const t=team(id);if(!t)return;t[k]=v;save();if(k==='name')renderAll();else renderTeams()}
+function setTeam(id,k,v){const t=team(id);if(!t)return;t[k]=v;save();_reRender(k==='name'?renderAll:renderTeams)}
 function delTeam(id){
   if(!confirm('Delete this team and its members? PBIs assigned to it lose their team.'))return;
   state.pbis.forEach(p=>{if(p.teamId===id){p.teamId=null;p.sprintId=null}});
@@ -765,8 +782,24 @@ function addTeam(){state.teams.push({id:uid('tm'),name:'New Team',members:[]});c
 // Guard against a team/member deleted by another client between render and edit (collab mode).
 function addMember(tId){const t=team(tId);if(!t)return;t.members.push({id:uid('mb'),name:'New Member',role:'Dev',cap:100,pto:{}});commit()}
 function delMember(tId,mId){const t=team(tId);if(!t)return;t.members=t.members.filter(m=>m.id!==mId);commit()}
-function setMember(tId,mId,k,v){const t=team(tId);if(!t)return;const m=t.members.find(x=>x.id===mId);if(!m)return;m[k]=v;save();renderTeams()}
-function setPto(tId,mId,spId,v){const t=team(tId);if(!t)return;const m=t.members.find(x=>x.id===mId);if(!m)return;if(!m.pto)m.pto={};m.pto[spId]=+v||0;save();renderTeams()}
+function setMember(tId,mId,k,v){const t=team(tId);if(!t)return;const m=t.members.find(x=>x.id===mId);if(!m)return;m[k]=v;save();_reRender(renderTeams)}
+function _member(tId,mId){const t=team(tId);if(!t)return null;return t.members.find(x=>x.id===mId)||null;}
+function _clampCap(v){return Math.max(0,Math.min(100,Math.round(+v||0)));}
+// Capacity is a number field: re-rendering on every keystroke recreates the input and
+// bounces the caret (number inputs can't have their caret restored), so type live and
+// only re-render the pool summary on blur.
+function setMemberCap(tId,mId,v){const m=_member(tId,mId);if(!m)return;m.cap=_clampCap(v);save();}
+function commitMemberCap(tId,mId,v){const m=_member(tId,mId);if(!m)return;m.cap=_clampCap(v);save();_reRender(renderTeams);}
+// Up/Down arrows step capacity to the next/previous multiple of 10, clamped 0–100.
+function capKey(e,tId,mId){
+  if(e.key!=='ArrowUp'&&e.key!=='ArrowDown')return;
+  e.preventDefault();
+  const m=_member(tId,mId);if(!m)return;
+  const v=_clampCap(m.cap);
+  m.cap=e.key==='ArrowUp'?Math.min(100,Math.floor(v/10)*10+10):Math.max(0,Math.ceil(v/10)*10-10);
+  save();_reRender(renderTeams);
+}
+function setPto(tId,mId,spId,v){const t=team(tId);if(!t)return;const m=t.members.find(x=>x.id===mId);if(!m)return;if(!m.pto)m.pto={};m.pto[spId]=+v||0;save();_reRender(renderTeams)}
 
 /* ---------- Features ---------- */
 function renderFeatures(){
