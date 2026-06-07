@@ -1,0 +1,12 @@
+# Like .gitignore, but for Docker: these are NOT copied into the image.
+# Keeps the image small and avoids baking machine-specific junk into it.
+
+.git
+.DS_Store
+**/.DS_Store
+node_modules
+*.zip
+
+# Live plan data — should live in a mounted volume, not inside the image.
+server/projects/
+server/plan.json

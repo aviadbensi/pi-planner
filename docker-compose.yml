@@ -1,0 +1,27 @@
+# docker-compose lets you describe how to run the container in one file,
+# so you start everything with a single short command instead of a long one.
+
+services:
+  pi-planner:
+    # Build the image from the Dockerfile in this folder.
+    build: .
+
+    # Map port 4040 on your machine -> port 4040 inside the container.
+    # Left side = your machine, right side = container. Change the left number
+    # (e.g. "8080:4040") if 4040 is already in use on your Mac.
+    ports:
+      - "4040:4040"
+
+    # Persist your planning data on your machine, in a REAL folder you can open
+    # in Finder: ./server/projects on your Mac  <->  /app/server/projects in the
+    # container. A leading "./" means "a path on my machine" (a bind mount).
+    # Deleting/rebuilding the container never touches these files.
+    volumes:
+      - ./server/projects:/app/server/projects
+
+    # Restart the server automatically if it crashes or the machine reboots.
+    restart: unless-stopped
+
+    # Optionally change the port the server listens on inside the container.
+    # environment:
+    #   - PORT=4040
